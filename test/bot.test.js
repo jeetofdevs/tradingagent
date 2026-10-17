@@ -223,3 +223,107 @@ test('mock market: a long run keeps the books balanced', async () => {
   assert.ok(s.balanceUsd >= 0);
   if (closedPnl !== null) assert.ok(Math.abs(s.balanceUsd + openCost - (1000 + closedPnl)) < 1e-6);
 });
+
+const { createJupiterFills } = require('../src/fills');
+const { readiness } = require('../src/readiness');
+
+test('jupiter fills: works out decimals and real fill prices', async () => {
+  const calls = [];
+  // Token price $0.001, 6 decimals, 3% lost to impact and fees each way.
+  const fetchImpl = async (url) => {
+    const q = new URL(url).searchParams;
+    calls.push(Object.fromEntries(q));
+    const amount = Number(q.get('amount'));
+    const out = q.get('outputMint') === 'TOKEN1'
+      ? Math.floor((amount / 1e6 / 0.001) * 1e6 * 0.97)
+      : Math.floor((amount / 1e6) * 0.001 * 1e6 * 0.97);
+    return { ok: true, json: async () => ({ outAmount: String(out) }) };
+  };
+  const fills = createJupiterFills({ baseUrl: 'https://example.test', fetchImpl });
+  const buy = await fills.buy('TOKEN1', 100, 0.001);
+  assert.equal(buy.decimals, 6);
+  assert.ok(Math.abs(buy.tokens - 97000) < 1);
+  assert.equal(calls[0].amount, '100000000'); // $100 in USDC base units
+  const sell = await fills.sell('TOKEN1', buy.rawAmount);
+  assert.ok(Math.abs(sell.usd - 97 * 0.97) < 0.01);
+});
+
+test('jupiter fills: no route is an error, not a free trade', async () => {
+  const fills = createJupiterFills({ baseUrl: 'https://x.test', fetchImpl: async () => ({ ok: true, json: async () => ({ outAmount: '0' }) }) });
+  await assert.rejects(fills.buy('T', 50, 0.01), /no route/);
+});
+
+function fakeFills({ lossPct = 3, fail = false } = {}) {
+  const k = 1 - lossPct / 100;
+  let market = null;
+  return {
+    name: 'jupiter',
+    setMarket(m) { market = m; },
+    async buy(mint, usd, ref) {
+      if (fail) throw new Error('down');
+      const tokens = (usd / ref) * k;
+      return { tokens, rawAmount: String(Math.round(tokens * 1e6)), decimals: 6, priceUsd: usd / tokens };
+    },
+    async sell(mint, raw) {
+      if (fail) throw new Error('down');
+      const price = (await market.quotes([mint])).get(mint).priceUsd;
+      return { usd: (Number(raw) / 1e6) * price * k };
+    },
+  };
+}
+
+test('engine: demo trades use real swap quotes on both sides', async () => {
+  let clock = 0;
+  const cfg = testConfig({ extraCostPerSidePct: 0, positionSizePct: 10 });
+  const market = fakeMarket([goodToken()]);
+  const fills = fakeFills({ lossPct: 3 });
+  fills.setMarket(market);
+  const engine = createEngine({ cfg, source: market, fills, store: createMemoryStore(), now: () => clock, log: quiet });
+  await engine.tick();
+  const [pos] = engine.snapshot().positions;
+  assert.equal(pos.fill, 'jupiter');
+  assert.ok(Math.abs(pos.entrySlippagePct - (1 / 0.97 - 1) * 100) < 1e-9);
+  // Exit rules use the market price, so a 3% swap cost does not trip anything.
+  engine.pause();
+  market.set('TOKEN1', { priceUsd: 0.0017 }); // +70% market
+  clock += 60000;
+  await engine.tick();
+  const [trade] = engine.snapshot().trades;
+  assert.equal(trade.reason, 'take-profit');
+  assert.equal(trade.exitFill, 'jupiter');
+  const expected = 100 * 0.97 * 1.7 * 0.97 - 100;
+  assert.ok(Math.abs(trade.pnlUsd - expected) < 1e-6);
+});
+
+test('engine: skips buys that a real swap would make too expensive', async () => {
+  const cfg = testConfig({ maxEntrySlippagePct: 8 });
+  const market = fakeMarket([goodToken()]);
+  const engine = createEngine({ cfg, source: market, fills: fakeFills({ lossPct: 20 }), store: createMemoryStore(), log: quiet });
+  await engine.tick();
+  const s = engine.snapshot();
+  assert.equal(s.positions.length, 0);
+  assert.match(s.lastScan.top[0].rejects.join(), /price impact/);
+});
+
+test('engine: no Jupiter quote means no buy by default', async () => {
+  const cfg = testConfig();
+  const engine = createEngine({ cfg, source: fakeMarket([goodToken()]), fills: fakeFills({ fail: true }), store: createMemoryStore(), log: quiet });
+  await engine.tick();
+  const s = engine.snapshot();
+  assert.equal(s.positions.length, 0);
+  assert.match(s.lastScan.top[0].rejects.join(), /no Jupiter quote/);
+});
+
+test('readiness: nothing passes on day one, all pass for a proven record', () => {
+  const day0 = readiness({ stats: computeStats([], [], 1000), trades: [], startedAt: 0, now: 0 });
+  assert.equal(day0.ready, false);
+  const trades = Array.from({ length: 60 }, (_, i) => ({
+    pnlUsd: i % 4 === 0 ? -5 : 10,
+    pnlPct: i % 4 === 0 ? -10 : 20,
+    entryFill: 'jupiter',
+    exitFill: 'jupiter',
+  }));
+  const equity = [{ v: 1000 }, { v: 1300 }];
+  const r = readiness({ stats: computeStats(trades, equity, 1000), trades, startedAt: 0, now: 15 * 86400000 });
+  assert.equal(r.ready, true, JSON.stringify(r.checks.filter((c) => !c.ok)));
+});

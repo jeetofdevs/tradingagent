@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Memecoin Paper Bot</title>
+<title>Memecoin Demo Bot</title>
 <style>
   :root {
     --bg: #f6f7f9; --panel: #ffffff; --text: #16181d; --muted: #646b78; --line: #e3e6eb;
@@ -41,18 +41,26 @@
   button, input { font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 6px 10px; }
   button { cursor: pointer; }
   button.danger { color: var(--down); }
+  .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .checks li { display: flex; gap: 8px; align-items: baseline; }
+  .checks .mark { width: 1.2em; font-weight: 700; }
   .pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; border: 1px solid var(--line); }
 </style>
 </head>
 <body>
 <main>
   <header>
-    <h1>Memecoin Paper Bot</h1>
+    <h1>Memecoin Demo Bot</h1>
     <span class="muted" id="status">Loading…</span>
   </header>
-  <div class="banner">Paper trading: every trade is simulated. No real money moves.</div>
+  <div class="banner">Demo fund: real Solana prices, real strategy, real swap quotes. No wallet, no real money moves.</div>
 
   <div class="grid" id="tiles"></div>
+
+  <section class="panel">
+    <h2>Ready for real money? <span class="muted" id="readySummary"></span></h2>
+    <ul class="checks" id="readiness"></ul>
+  </section>
 
   <section class="panel">
     <h2>Equity</h2>
@@ -101,6 +109,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const usd = (v) => (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
 const pct = (v) => (v > 0 ? '+' : '') + v.toFixed(1) + '%';
+const fillCost = (v) => (v == null ? '—' : v.toFixed(1) + '%');
 const cls = (v) => (v > 0 ? 'up' : v < 0 ? 'down' : '');
 const price = (v) => (v >= 1 ? v.toFixed(4) : v.toPrecision(4));
 const compact = (v) => '$' + Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(v);
@@ -161,8 +170,11 @@ function table(id, head, rows, empty) {
 
 function render(s) {
   const when = s.lastTickAt ? 'updated ' + ago(s.lastTickAt) : 'waiting for first scan';
-  $('status').innerHTML = `${esc(s.chain)} · data: ${esc(s.source)} · rug check: ${esc(s.safetyCheck)} · ${s.paused ? '<span class="pill down">buying paused</span>' : '<span class="pill up">running</span>'} · ${when}`;
+  $('status').innerHTML = `${esc(s.chain)} · data: ${esc(s.source)} · rug check: ${esc(s.safetyCheck)} · swap prices: ${esc(s.fills)} · ${s.paused ? '<span class="pill down">buying paused</span>' : '<span class="pill up">running</span>'} · ${when}`;
   tiles(s);
+  const r = s.readiness;
+  $('readySummary').textContent = r.ready ? '· all checks pass' : `· ${r.passed} of ${r.checks.length} checks pass`;
+  $('readiness').innerHTML = r.checks.map((c) => `<li><span class="mark ${c.ok ? 'up' : 'down'}">${c.ok ? '✓' : '✗'}</span><span>${esc(c.label)} <span class="muted">(${esc(c.detail)})</span></span></li>`).join('');
   chart(s.equity, s.startBalanceUsd);
 
   table('positions', ['Token', 'Size', 'Value', 'P/L', 'Entry', 'Now', 'Peak', 'Held', 'Score'],
@@ -171,9 +183,10 @@ function render(s) {
       `<td>${pct((p.peakPriceUsd / p.entryPriceUsd - 1) * 100)}</td><td>${dur(Date.now() - p.openedAt)}</td><td>${p.score}</td></tr>`),
     'No open positions.');
 
-  table('trades', ['Token', 'Result', 'P/L', 'Peak', 'Exit reason', 'Held', 'Closed'],
+  table('trades', ['Token', 'Result', 'P/L', 'Peak', 'Exit reason', 'Swap cost in / out', 'Held', 'Closed'],
     s.trades.map((t) => `<tr><td>${link(t.url, t.symbol)}</td><td class="${cls(t.pnlUsd)}">${pct(t.pnlPct)}</td>` +
       `<td class="${cls(t.pnlUsd)}">${usd(t.pnlUsd)}</td><td>${pct(t.peakPct)}</td><td>${esc(t.reason)}</td>` +
+      `<td title="${esc((t.entryFill || 'fixed') + ' / ' + (t.exitFill || 'fixed'))}">${fillCost(t.entrySlippagePct)} / ${fillCost(t.exitSlippagePct)}</td>` +
       `<td>${dur(t.closedAt - t.openedAt)}</td><td>${ago(t.closedAt)}</td></tr>`),
     'No closed trades yet.');
 
@@ -191,7 +204,8 @@ function render(s) {
   const g = s.settings;
   $('settings').textContent = `Scan every ${g.scanIntervalSec}s · ${g.positionSizePct}% per trade · max ${g.maxOpenPositions} open · ` +
     `take profit +${g.takeProfitPct}% · stop loss -${g.stopLossPct}% · trailing stop ${g.trailingStopPct}% after +${g.trailingArmPct}% · ` +
-    `max hold ${g.maxHoldMin}m · ${g.costPerSidePct}% fees+slippage per side · min score ${g.minScore} · min liquidity ${compact(g.minLiquidityUsd)}`;
+    `max hold ${g.maxHoldMin}m · swap cost: ${s.fills === 'jupiter' ? `Jupiter quote + ${g.extraCostPerSidePct}% network fees, skip if over ${g.maxEntrySlippagePct}%` : `flat ${g.costPerSidePct}%`} per side · ` +
+    `min score ${g.minScore} · min liquidity ${compact(g.minLiquidityUsd)}`;
 
   $('controls').querySelectorAll('button').forEach((b) => { b.disabled = !s.controlsEnabled; });
   if (!s.controlsEnabled) $('controlMsg').textContent = 'Set ADMIN_TOKEN on the server to turn controls on.';

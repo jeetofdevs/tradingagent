@@ -7,15 +7,24 @@ const { createFileStore } = require('./store');
 const { createDexScreenerSource } = require('./sources/dexscreener');
 const { createMockSource } = require('./sources/mock');
 const { createRugCheck } = require('./safety');
+const { createJupiterFills } = require('./fills');
 
 const cfg = loadConfig();
+if (cfg.tradingMode !== 'demo') {
+  console.error(`TRADING_MODE=${cfg.tradingMode} is not supported. Only the demo fund exists; live trading is not built.`);
+  process.exit(1);
+}
 const isMock = cfg.dataSource === 'mock';
 const source = isMock ? createMockSource() : createDexScreenerSource({ chain: cfg.chain });
 // RugCheck only covers Solana tokens, and mock tokens do not exist on-chain.
 const safety = cfg.rugCheck && !isMock && cfg.chain === 'solana'
   ? createRugCheck({ maxRiskScore: cfg.maxRugRiskScore })
   : null;
-const engine = createEngine({ cfg, source, safety, store: createFileStore(cfg.dataDir) });
+// Jupiter quotes are for real Solana tokens only.
+const fills = cfg.jupiterFills && !isMock && cfg.chain === 'solana'
+  ? createJupiterFills({ baseUrl: cfg.jupiterBaseUrl })
+  : null;
+const engine = createEngine({ cfg, source, safety, fills, store: createFileStore(cfg.dataDir) });
 
 const app = express();
 app.disable('x-powered-by');
@@ -60,7 +69,7 @@ async function loop() {
 
 const server = app.listen(cfg.port, () => {
   console.log(
-    `Paper trading bot on port ${cfg.port} | source=${source.name} chain=${cfg.chain} rugcheck=${safety ? 'on' : 'off'}`,
+    `Demo trading bot on port ${cfg.port} | source=${source.name} chain=${cfg.chain} rugcheck=${safety ? 'on' : 'off'} fills=${fills ? 'jupiter' : 'fixed'}`,
   );
   loop();
 });

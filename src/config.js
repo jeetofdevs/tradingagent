@@ -27,13 +27,27 @@ function loadConfig() {
     chain: str('CHAIN', 'solana'),
     scanIntervalSec: num('SCAN_INTERVAL_SEC', 60),
 
-    // Money (paper only)
+    // Only 'demo' exists. Live trading is not built.
+    tradingMode: str('TRADING_MODE', 'demo'),
+
+    // Demo fund
     startBalanceUsd: num('START_BALANCE_USD', 1000),
     positionSizePct: num('POSITION_SIZE_PCT', 5), // % of equity per trade
     minTradeUsd: num('MIN_TRADE_USD', 10),
     maxOpenPositions: num('MAX_OPEN_POSITIONS', 5),
-    // Fees + slippage charged on each side of a trade, in %.
+    // Flat fees + slippage per side, in %. Used when Jupiter quotes are off
+    // or fail, and to estimate the value of open positions.
     costPerSidePct: num('COST_PER_SIDE_PCT', 1.5),
+
+    // Realistic fills from Jupiter quotes (read-only, nothing is sent).
+    jupiterFills: str('JUPITER_FILLS', 'on') !== 'off',
+    jupiterBaseUrl: str('JUPITER_BASE_URL', 'https://lite-api.jup.ag/swap/v1'),
+    // Network and priority fees on top of the quote, per side, in %.
+    extraCostPerSidePct: num('EXTRA_COST_PER_SIDE_PCT', 0.5),
+    // Skip a buy if the real swap would lose more than this on entry.
+    maxEntrySlippagePct: num('MAX_ENTRY_SLIPPAGE_PCT', 8),
+    // 'on' = skip buys when no Jupiter quote. 'off' = fall back to flat cost.
+    requireRealFills: str('REQUIRE_REAL_FILLS', 'on') !== 'off',
 
     // Exits
     takeProfitPct: num('TAKE_PROFIT_PCT', 60),

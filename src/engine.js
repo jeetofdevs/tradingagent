@@ -1,8 +1,14 @@
-// The paper-trading loop: check open positions for exits, then scan for
-// new entries. No real orders are ever sent.
+// The demo-trading loop: check open positions for exits, then scan for new
+// entries. Prices and strategy are real; the money is a demo fund. No order
+// is ever signed or sent.
+//
+// Fills: with Jupiter quotes on, each demo buy and sell is priced at what a
+// real swap of that size would get right now. Without them (or if a quote
+// fails) a flat COST_PER_SIDE_PCT is charged instead.
 
 const { evaluate } = require('./scoring');
 const { computeStats } = require('./stats');
+const { readiness } = require('./readiness');
 
 const MAX_TRADES = 5000;
 const MAX_EQUITY_POINTS = 2000;
@@ -10,7 +16,7 @@ const MAX_ERRORS = 20;
 
 function freshState(cfg, now) {
   return {
-    version: 1,
+    version: 2,
     startedAt: now,
     startBalanceUsd: cfg.startBalanceUsd,
     balanceUsd: cfg.startBalanceUsd,
@@ -25,12 +31,21 @@ function freshState(cfg, now) {
   };
 }
 
-function createEngine({ cfg, source, store, safety = null, now = () => Date.now(), log = console }) {
+function createEngine({ cfg, source, store, safety = null, fills = null, now = () => Date.now(), log = console }) {
   let state = store.load() || freshState(cfg, now());
-  let busy = false;
+
+  // One thing at a time: the loop and dashboard buttons share this lock.
+  let lock = Promise.resolve();
+  const exclusive = (fn) => {
+    const run = lock.then(fn, fn);
+    lock = run.catch(() => {});
+    return run;
+  };
 
   const cost = cfg.costPerSidePct / 100;
+  const extra = cfg.extraCostPerSidePct / 100;
 
+  // Market value if sold now. Uses the flat cost as a rough exit estimate.
   function positionValue(pos) {
     return pos.qty * pos.lastPriceUsd * (1 - cost);
   }
@@ -46,9 +61,26 @@ function createEngine({ cfg, source, store, safety = null, now = () => Date.now(
     state.errors.length = Math.min(state.errors.length, MAX_ERRORS);
   }
 
-  function closePosition(pos, priceUsd, reason) {
-    const exitPrice = priceUsd * (1 - cost);
-    const proceeds = pos.qty * exitPrice;
+  // Market price at entry, without fills. Exit rules are measured from this.
+  const entryMarket = (pos) => pos.entryMarketPriceUsd ?? pos.entryPriceUsd;
+
+  async function sellProceeds(pos, marketPriceUsd) {
+    if (!(marketPriceUsd > 0)) return { usd: 0, fill: 'none' };
+    if (fills && pos.rawAmount) {
+      try {
+        const { usd } = await fills.sell(pos.address, pos.rawAmount);
+        return { usd: usd * (1 - extra), fill: 'jupiter' };
+      } catch (err) {
+        recordError(`sell quote ${pos.symbol}`, err);
+        return { usd: pos.qty * marketPriceUsd * (1 - cost), fill: 'fixed-fallback' };
+      }
+    }
+    return { usd: pos.qty * marketPriceUsd * (1 - cost), fill: 'fixed' };
+  }
+
+  async function closePosition(pos, marketPriceUsd, reason) {
+    const { usd: proceeds, fill } = await sellProceeds(pos, marketPriceUsd);
+    const exitPrice = pos.qty > 0 ? proceeds / pos.qty : 0;
     state.balanceUsd += proceeds;
     const pnlUsd = proceeds - pos.costUsd;
     state.trades.push({
@@ -59,23 +91,30 @@ function createEngine({ cfg, source, store, safety = null, now = () => Date.now(
       closedAt: now(),
       entryPriceUsd: pos.entryPriceUsd,
       exitPriceUsd: exitPrice,
+      entryMarketPriceUsd: entryMarket(pos),
+      exitMarketPriceUsd: marketPriceUsd,
+      entryFill: pos.fill || 'fixed',
+      exitFill: fill,
+      entrySlippagePct: pos.entrySlippagePct ?? cfg.costPerSidePct,
+      exitSlippagePct: marketPriceUsd > 0 ? (1 - exitPrice / marketPriceUsd) * 100 : 100,
       costUsd: pos.costUsd,
       proceedsUsd: proceeds,
       pnlUsd,
       pnlPct: (pnlUsd / pos.costUsd) * 100,
-      peakPct: (pos.peakPriceUsd / pos.entryPriceUsd - 1) * 100,
+      peakPct: (pos.peakPriceUsd / entryMarket(pos) - 1) * 100,
       reason,
       score: pos.score,
     });
     if (state.trades.length > MAX_TRADES) state.trades.splice(0, state.trades.length - MAX_TRADES);
     state.cooldowns[pos.address] = now() + cfg.cooldownMin * 60000;
     state.positions = state.positions.filter((p) => p !== pos);
-    log.log(`SELL ${pos.symbol} ${reason} pnl ${pnlUsd.toFixed(2)} USD`);
+    log.log(`SELL ${pos.symbol} ${reason} pnl ${pnlUsd.toFixed(2)} USD (${fill})`);
   }
 
   function exitReason(pos, q) {
-    const changePct = (q.priceUsd / pos.entryPriceUsd - 1) * 100;
-    const peakGainPct = (pos.peakPriceUsd / pos.entryPriceUsd - 1) * 100;
+    const base = entryMarket(pos);
+    const changePct = (q.priceUsd / base - 1) * 100;
+    const peakGainPct = (pos.peakPriceUsd / base - 1) * 100;
     if (changePct <= -cfg.stopLossPct) return 'stop-loss';
     if (changePct >= cfg.takeProfitPct) return 'take-profit';
     if (peakGainPct >= cfg.trailingArmPct && q.priceUsd <= pos.peakPriceUsd * (1 - cfg.trailingStopPct / 100)) {
@@ -97,7 +136,7 @@ function createEngine({ cfg, source, store, safety = null, now = () => Date.now(
         pos.missedQuotes = (pos.missedQuotes || 0) + 1;
         // A token that vanished is usually a rug. Count it as a total loss
         // rather than pretending we sold at the last price.
-        if (pos.missedQuotes >= cfg.maxMissedQuotes) closePosition(pos, 0, 'no-quote');
+        if (pos.missedQuotes >= cfg.maxMissedQuotes) await closePosition(pos, 0, 'no-quote');
         continue;
       }
       pos.missedQuotes = 0;
@@ -105,8 +144,28 @@ function createEngine({ cfg, source, store, safety = null, now = () => Date.now(
       pos.lastLiquidityUsd = q.liquidityUsd;
       pos.peakPriceUsd = Math.max(pos.peakPriceUsd, q.priceUsd);
       const reason = exitReason(pos, q);
-      if (reason) closePosition(pos, q.priceUsd, reason);
+      if (reason) await closePosition(pos, q.priceUsd, reason);
     }
+  }
+
+  // Price a demo buy. Returns null (with a reason) when it should be skipped.
+  async function priceBuy(snap, size) {
+    if (fills) {
+      try {
+        const f = await fills.buy(snap.address, size, snap.priceUsd);
+        const tokens = f.tokens * (1 - extra);
+        const slippagePct = (size / tokens / snap.priceUsd - 1) * 100;
+        if (slippagePct > cfg.maxEntrySlippagePct) {
+          return { skip: `real swap would lose ${slippagePct.toFixed(1)}% to price impact and fees` };
+        }
+        return { tokens, rawAmount: f.rawAmount, decimals: f.decimals, slippagePct, fill: 'jupiter' };
+      } catch (err) {
+        recordError(`buy quote ${snap.symbol}`, err);
+        if (cfg.requireRealFills) return { skip: `no Jupiter quote (${err.message})` };
+      }
+    }
+    const tokens = size / (snap.priceUsd * (1 + cost));
+    return { tokens, rawAmount: null, slippagePct: cfg.costPerSidePct, fill: fills ? 'fixed-fallback' : 'fixed' };
   }
 
   async function scanAndEnter() {
@@ -133,7 +192,14 @@ function createEngine({ cfg, source, store, safety = null, now = () => Date.now(
       }
       const size = Math.min(state.balanceUsd, (equity() * cfg.positionSizePct) / 100);
       if (size < cfg.minTradeUsd) break;
-      const entryPrice = snap.priceUsd * (1 + cost);
+
+      const priced = await priceBuy(snap, size);
+      if (priced.skip) {
+        result.pass = false;
+        result.rejects.push(priced.skip);
+        continue;
+      }
+
       state.balanceUsd -= size;
       state.positions.push({
         address: snap.address,
@@ -142,8 +208,13 @@ function createEngine({ cfg, source, store, safety = null, now = () => Date.now(
         url: snap.url,
         openedAt: t,
         costUsd: size,
-        qty: size / entryPrice,
-        entryPriceUsd: entryPrice,
+        qty: priced.tokens,
+        rawAmount: priced.rawAmount,
+        decimals: priced.decimals ?? null,
+        fill: priced.fill,
+        entrySlippagePct: priced.slippagePct,
+        entryPriceUsd: size / priced.tokens,
+        entryMarketPriceUsd: snap.priceUsd,
         lastPriceUsd: snap.priceUsd,
         peakPriceUsd: snap.priceUsd,
         entryLiquidityUsd: snap.liquidityUsd,
@@ -153,7 +224,7 @@ function createEngine({ cfg, source, store, safety = null, now = () => Date.now(
       });
       held.add(snap.address);
       bought.push(snap.address);
-      log.log(`BUY ${snap.symbol} score ${result.score} size ${size.toFixed(2)} USD`);
+      log.log(`BUY ${snap.symbol} score ${result.score} size ${size.toFixed(2)} USD (${priced.fill})`);
     }
 
     state.lastScan = {
@@ -188,37 +259,33 @@ function createEngine({ cfg, source, store, safety = null, now = () => Date.now(
     }
   }
 
-  async function tick() {
-    if (busy) return;
-    busy = true;
+  async function tickOnce() {
     try {
-      try {
-        await updatePositions();
-      } catch (err) {
-        recordError('update positions', err);
-      }
-      if (!state.paused) {
-        try {
-          await scanAndEnter();
-        } catch (err) {
-          recordError('scan', err);
-        }
-      }
-      recordEquity();
-      state.ticks += 1;
-      state.lastTickAt = now();
-      store.save(state);
-    } finally {
-      busy = false;
+      await updatePositions();
+    } catch (err) {
+      recordError('update positions', err);
     }
+    if (!state.paused) {
+      try {
+        await scanAndEnter();
+      } catch (err) {
+        recordError('scan', err);
+      }
+    }
+    recordEquity();
+    state.ticks += 1;
+    state.lastTickAt = now();
+    store.save(state);
   }
 
   function snapshot() {
+    const stats = computeStats(state.trades, state.equity, state.startBalanceUsd);
     return {
-      mode: 'paper',
+      mode: 'demo',
       source: source.name,
       chain: cfg.chain,
       safetyCheck: safety ? 'rugcheck' : 'off',
+      fills: fills ? fills.name : 'fixed',
       startedAt: state.startedAt,
       lastTickAt: state.lastTickAt || null,
       ticks: state.ticks,
@@ -226,7 +293,8 @@ function createEngine({ cfg, source, store, safety = null, now = () => Date.now(
       balanceUsd: state.balanceUsd,
       equityUsd: equity(),
       startBalanceUsd: state.startBalanceUsd,
-      stats: computeStats(state.trades, state.equity, state.startBalanceUsd),
+      stats,
+      readiness: readiness({ stats, trades: state.trades, startedAt: state.startedAt, now: now() }),
       positions: state.positions.map((p) => ({
         ...p,
         valueUsd: positionValue(p),
@@ -246,6 +314,8 @@ function createEngine({ cfg, source, store, safety = null, now = () => Date.now(
         trailingStopPct: cfg.trailingStopPct,
         maxHoldMin: cfg.maxHoldMin,
         costPerSidePct: cfg.costPerSidePct,
+        extraCostPerSidePct: cfg.extraCostPerSidePct,
+        maxEntrySlippagePct: cfg.maxEntrySlippagePct,
         minScore: cfg.minScore,
         minLiquidityUsd: cfg.minLiquidityUsd,
       },
@@ -253,29 +323,33 @@ function createEngine({ cfg, source, store, safety = null, now = () => Date.now(
   }
 
   return {
-    tick,
+    tick: () => exclusive(tickOnce),
     snapshot,
-    pause() {
-      state.paused = true;
-      store.save(state);
-    },
-    resume() {
-      state.paused = false;
-      store.save(state);
-    },
-    reset() {
-      state = freshState(cfg, now());
-      store.save(state);
-    },
-    async closeAll() {
-      if (state.positions.length === 0) return;
-      const quotes = await source.quotes(state.positions.map((p) => p.address));
-      for (const pos of [...state.positions]) {
-        const q = quotes.get(pos.address);
-        closePosition(pos, q?.priceUsd > 0 ? q.priceUsd : pos.lastPriceUsd, 'manual');
-      }
-      store.save(state);
-    },
+    pause: () =>
+      exclusive(() => {
+        state.paused = true;
+        store.save(state);
+      }),
+    resume: () =>
+      exclusive(() => {
+        state.paused = false;
+        store.save(state);
+      }),
+    reset: () =>
+      exclusive(() => {
+        state = freshState(cfg, now());
+        store.save(state);
+      }),
+    closeAll: () =>
+      exclusive(async () => {
+        if (state.positions.length === 0) return;
+        const quotes = await source.quotes(state.positions.map((p) => p.address));
+        for (const pos of [...state.positions]) {
+          const q = quotes.get(pos.address);
+          await closePosition(pos, q?.priceUsd > 0 ? q.priceUsd : pos.lastPriceUsd, 'manual');
+        }
+        store.save(state);
+      }),
     save: () => store.save(state),
   };
 }

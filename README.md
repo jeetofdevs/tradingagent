@@ -1,13 +1,17 @@
-# Memecoin Paper Bot
+# Memecoin Demo Bot
 
 A Solana memecoin trading bot with a web dashboard. It watches new and
 trending tokens on DexScreener, filters out likely rugs, scores the rest, and
-**paper trades** them: every buy and sell is simulated at live prices with
-fees and slippage. No wallet, no private key, no real money.
+trades them with a **demo fund**: real prices, the real strategy, and each
+buy and sell priced with a real Jupiter swap quote for that exact size. No
+wallet, no private key, no real money. Live trading is not built, and the
+server refuses to start with any `TRADING_MODE` other than `demo`.
 
-Run it for a few weeks. If the dashboard's **Edge check** says "Likely real
-edge" after 30+ trades, the strategy might be worth trading for real. Most
-memecoin strategies never get there.
+Run it for a few weeks. The dashboard's **Ready for real money?** checklist
+turns green only when all of these hold: 50+ closed trades, 14+ days running,
+positive average trade after costs, the edge check says "likely real edge",
+worst drawdown under 30%, and 80%+ of trades priced with real Jupiter quotes.
+Most memecoin strategies never get there.
 
 ## What it does
 
@@ -26,6 +30,10 @@ Every scan (default every 60 s):
 5. **Safety check** with [RugCheck](https://rugcheck.xyz) before each buy:
    mint authority still on, freeze authority on, unlocked liquidity, and other
    "danger" risks. If the check cannot run, the bot skips the token.
+6. **Price the demo buy** with a Jupiter quote (USDC → token) for the exact
+   size, plus 0.5% for network fees. If the swap would lose more than 8% to
+   price impact, it skips the token. When selling, it quotes the exact token
+   amount back to USDC. Quotes are read-only; nothing is signed or sent.
 
 The dashboard shows equity, win rate, average result per trade, profit factor,
 max drawdown, win and loss streaks, an edge check (is the result better than
@@ -52,8 +60,8 @@ can press the buttons.
 
 ```bash
 npm install
-npm run dev        # fake market, scans every 3 s, http://localhost:3000
-npm start          # real Solana data from DexScreener
+npm run dev        # fake market, flat costs, scans every 3 s, http://localhost:3000
+npm start          # real Solana data, RugCheck and Jupiter quotes
 npm test
 ```
 
@@ -71,7 +79,13 @@ All optional, set as environment variables.
 | `START_BALANCE_USD` | `1000` | Paper starting balance |
 | `POSITION_SIZE_PCT` | `5` | % of equity per trade |
 | `MAX_OPEN_POSITIONS` | `5` | Max trades open at once |
-| `COST_PER_SIDE_PCT` | `1.5` | Fees + slippage charged on buy and on sell |
+| `TRADING_MODE` | `demo` | Only `demo` exists; anything else refuses to start |
+| `JUPITER_FILLS` | `on` | Price demo buys and sells with real Jupiter quotes |
+| `JUPITER_BASE_URL` | `https://lite-api.jup.ag/swap/v1` | Jupiter quote API |
+| `EXTRA_COST_PER_SIDE_PCT` | `0.5` | Network and priority fees on top of the quote |
+| `MAX_ENTRY_SLIPPAGE_PCT` | `8` | Skip a buy that would lose more than this on entry |
+| `REQUIRE_REAL_FILLS` | `on` | `off` = use the flat cost when Jupiter fails, instead of skipping |
+| `COST_PER_SIDE_PCT` | `1.5` | Flat cost per side when Jupiter is off, and for valuing open positions |
 | `TAKE_PROFIT_PCT` | `60` | Sell at this gain |
 | `STOP_LOSS_PCT` | `25` | Sell at this loss |
 | `TRAILING_ARM_PCT` | `20` | Gain needed before the trailing stop starts |
@@ -92,9 +106,10 @@ All optional, set as environment variables.
 
 ## Honest limits
 
-- **Paper fills are optimistic.** Real memecoin trades can slip far more than
-  1.5%, and stop losses fill below the trigger in a fast dump. The bot only
-  sees prices once per scan.
+- **Demo fills are still a bit optimistic.** A Jupiter quote is what the swap
+  would get at that moment; a real swap lands a second or two later, and in a
+  fast dump the stop loss fills below the trigger. The bot only sees prices
+  once per scan.
 - **DexScreener data lags** on-chain trades by seconds. Snipers and insiders
   will always be faster.
 - **Most memecoins go to zero.** Treat good paper results with suspicion until

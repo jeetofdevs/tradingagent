@@ -1,7 +1,7 @@
 {
   "name": "tradingagent",
   "version": "0.1.0",
-  "description": "Paper-trading memecoin bot with a web dashboard. Scores new Solana tokens from DexScreener and simulates trades.",
+  "description": "Demo-fund memecoin bot with a web dashboard. Scores new Solana tokens from DexScreener and simulates trades.",
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
