@@ -27,12 +27,14 @@ function freshState(cfg, now) {
     cooldowns: {},
     lastScan: null,
     errors: [],
+    vetoes: [],
     ticks: 0,
   };
 }
 
-function createEngine({ cfg, source, store, safety = null, fills = null, now = () => Date.now(), log = console }) {
+function createEngine({ cfg, source, store, safety = null, fills = null, grok = null, now = () => Date.now(), log = console }) {
   let state = store.load() || freshState(cfg, now());
+  state.vetoes = state.vetoes || [];
 
   // One thing at a time: the loop and dashboard buttons share this lock.
   let lock = Promise.resolve();
@@ -104,6 +106,7 @@ function createEngine({ cfg, source, store, safety = null, fills = null, now = (
       peakPct: (pos.peakPriceUsd / entryMarket(pos) - 1) * 100,
       reason,
       score: pos.score,
+      grok: pos.grok || null,
     });
     if (state.trades.length > MAX_TRADES) state.trades.splice(0, state.trades.length - MAX_TRADES);
     state.cooldowns[pos.address] = now() + cfg.cooldownMin * 60000;
@@ -179,6 +182,7 @@ function createEngine({ cfg, source, store, safety = null, fills = null, now = (
       .sort((a, b) => b.result.score - a.result.score);
 
     const bought = [];
+    let grokCalls = 0;
     for (const { snap, result } of evaluated) {
       if (state.positions.length >= cfg.maxOpenPositions) break;
       if (!result.pass || held.has(snap.address) || state.cooldowns[snap.address]) continue;
@@ -198,6 +202,34 @@ function createEngine({ cfg, source, store, safety = null, fills = null, now = (
         result.pass = false;
         result.rejects.push(priced.skip);
         continue;
+      }
+
+      let grokVerdict = null;
+      if (grok) {
+        if (!grok.isCached(snap.address) && grokCalls >= cfg.grokMaxChecksPerScan) {
+          result.rejects.push('waiting for a Grok check (next scan)');
+          result.pass = false;
+          continue;
+        }
+        if (!grok.isCached(snap.address)) grokCalls += 1;
+        try {
+          grokVerdict = await grok.check(snap);
+        } catch (err) {
+          recordError(`grok ${snap.symbol}`, err);
+          if (cfg.grokMode === 'veto') {
+            result.pass = false;
+            result.rejects.push(`Grok check failed (${err.message.slice(0, 80)})`);
+            continue;
+          }
+        }
+        result.grok = grokVerdict;
+        const approved = grokVerdict && grokVerdict.decision === 'buy' && grokVerdict.confidence >= cfg.grokMinConfidence;
+        if (cfg.grokMode === 'veto' && !approved) {
+          result.pass = false;
+          result.rejects.push(`Grok: skip (${grokVerdict.confidence}%) ${grokVerdict.summary}`);
+          recordVeto(snap, grokVerdict);
+          continue;
+        }
       }
 
       state.balanceUsd -= size;
@@ -220,6 +252,7 @@ function createEngine({ cfg, source, store, safety = null, fills = null, now = (
         entryLiquidityUsd: snap.liquidityUsd,
         lastLiquidityUsd: snap.liquidityUsd,
         score: result.score,
+        grok: grokVerdict,
         missedQuotes: 0,
       });
       held.add(snap.address);
@@ -246,8 +279,63 @@ function createEngine({ cfg, source, store, safety = null, fills = null, now = (
         parts: result.parts,
         pass: result.pass,
         rejects: result.rejects,
+        grok: result.grok || null,
         bought: bought.includes(snap.address),
       })),
+    };
+  }
+
+  // Follow coins Grok blocked, to see whether skipping them helped.
+  const VETO_WATCH_MS = 3 * 60 * 60000;
+  function recordVeto(snap, verdict) {
+    if (state.vetoes.some((v) => v.address === snap.address && now() - v.t < VETO_WATCH_MS)) return;
+    state.vetoes.unshift({
+      address: snap.address,
+      symbol: snap.symbol,
+      url: snap.url,
+      t: now(),
+      priceUsd: snap.priceUsd,
+      lastPriceUsd: snap.priceUsd,
+      maxPriceUsd: snap.priceUsd,
+      minPriceUsd: snap.priceUsd,
+      confidence: verdict.confidence,
+      sentiment: verdict.sentiment,
+      summary: verdict.summary,
+      redFlags: verdict.redFlags,
+    });
+    state.vetoes.length = Math.min(state.vetoes.length, 50);
+  }
+
+  async function trackVetoes() {
+    const watching = state.vetoes.filter((v) => now() - v.t < VETO_WATCH_MS);
+    if (watching.length === 0) return;
+    const quotes = await source.quotes(watching.map((v) => v.address));
+    for (const v of watching) {
+      const q = quotes.get(v.address);
+      const price = q && q.priceUsd > 0 ? q.priceUsd : 0;
+      v.lastPriceUsd = price;
+      v.maxPriceUsd = Math.max(v.maxPriceUsd, price);
+      v.minPriceUsd = Math.min(v.minPriceUsd, price);
+    }
+  }
+
+  function grokSummary() {
+    const judged = state.trades.filter((t) => t.grok);
+    const wins = judged.filter((t) => t.pnlUsd > 0).length;
+    const done = state.vetoes.filter((v) => now() - v.t >= 30 * 60000);
+    const change = (v) => (v.lastPriceUsd / v.priceUsd - 1) * 100;
+    return {
+      mode: grok ? cfg.grokMode : 'off',
+      model: grok ? cfg.grokModel : null,
+      tradesJudged: judged.length,
+      winRatePct: judged.length ? (wins / judged.length) * 100 : 0,
+      vetoes: state.vetoes.length,
+      // Of blocked coins older than 30 min: would they have hit our stop or target?
+      vetoesWouldHitStop: done.filter((v) => (v.minPriceUsd / v.priceUsd - 1) * 100 <= -cfg.stopLossPct).length,
+      vetoesWouldHitTarget: done.filter((v) => (v.maxPriceUsd / v.priceUsd - 1) * 100 >= cfg.takeProfitPct).length,
+      vetoesScored: done.length,
+      avgChangeSinceVetoPct: done.length ? done.reduce((a, v) => a + change(v), 0) / done.length : 0,
+      recentVetoes: state.vetoes.slice(0, 15).map((v) => ({ ...v, changePct: change(v) })),
     };
   }
 
@@ -264,6 +352,11 @@ function createEngine({ cfg, source, store, safety = null, fills = null, now = (
       await updatePositions();
     } catch (err) {
       recordError('update positions', err);
+    }
+    try {
+      await trackVetoes();
+    } catch (err) {
+      recordError('track Grok vetoes', err);
     }
     if (!state.paused) {
       try {
@@ -286,6 +379,7 @@ function createEngine({ cfg, source, store, safety = null, fills = null, now = (
       chain: cfg.chain,
       safetyCheck: safety ? 'rugcheck' : 'off',
       fills: fills ? fills.name : 'fixed',
+      grok: grokSummary(),
       startedAt: state.startedAt,
       lastTickAt: state.lastTickAt || null,
       ticks: state.ticks,

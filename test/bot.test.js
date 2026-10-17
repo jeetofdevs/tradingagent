@@ -327,3 +327,100 @@ test('readiness: nothing passes on day one, all pass for a proven record', () =>
   const r = readiness({ stats: computeStats(trades, equity, 1000), trades, startedAt: 0, now: 15 * 86400000 });
   assert.equal(r.ready, true, JSON.stringify(r.checks.filter((c) => !c.ok)));
 });
+
+const { createGrokAdvisor, parseVerdict, replyText } = require('../src/grok');
+
+test('grok: reads the reply and validates the verdict', () => {
+  const body = { output: [{ type: 'x_search_call' }, { type: 'message', content: [{ type: 'output_text', text: 'Here:\n{"decision":"SKIP","confidence":85,"sentiment":"bearish","summary":"Bot replies only","red_flags":["paid shills"]}' }] }] };
+  const v = parseVerdict(replyText(body));
+  assert.deepEqual(v, { decision: 'skip', confidence: 85, sentiment: 'bearish', summary: 'Bot replies only', redFlags: ['paid shills'] });
+  assert.throws(() => parseVerdict('no json here'), /no JSON/);
+  assert.throws(() => parseVerdict('{"decision":"maybe"}'), /not buy or skip/);
+});
+
+test('grok: sends x_search to the Responses API and caches per token', async () => {
+  const sent = [];
+  const fetchImpl = async (url, opts) => {
+    sent.push({ url, body: JSON.parse(opts.body), auth: opts.headers.authorization });
+    return { ok: true, json: async () => ({ output_text: '{"decision":"buy","confidence":70,"sentiment":"bullish","summary":"Organic","red_flags":[]}' }) };
+  };
+  const g = createGrokAdvisor({ apiKey: 'k', model: 'grok-test', fetchImpl });
+  assert.equal(g.isCached('TOKEN1'), false);
+  const v = await g.check(goodToken());
+  await g.check(goodToken());
+  assert.equal(v.decision, 'buy');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].url, 'https://api.x.ai/v1/responses');
+  assert.equal(sent[0].auth, 'Bearer k');
+  assert.deepEqual(sent[0].body.tools, [{ type: 'x_search' }]);
+  assert.match(sent[0].body.input[1].content, /TOKEN1/);
+  assert.equal(g.isCached('TOKEN1'), true);
+});
+
+function fakeGrok(verdict, { fail = false } = {}) {
+  const calls = [];
+  return {
+    calls,
+    isCached: () => false,
+    async check(snap) {
+      calls.push(snap.address);
+      if (fail) throw new Error('xai down');
+      return verdict;
+    },
+  };
+}
+
+test('engine: Grok veto blocks a buy and the blocked coin is followed', async () => {
+  let clock = 0;
+  const cfg = testConfig({ grokMode: 'veto' });
+  const market = fakeMarket([goodToken()]);
+  const grok = fakeGrok({ decision: 'skip', confidence: 80, sentiment: 'bearish', summary: 'Shilled by bots', redFlags: [] });
+  const engine = createEngine({ cfg, source: market, grok, store: createMemoryStore(), now: () => clock, log: quiet });
+  await engine.tick();
+  let s = engine.snapshot();
+  assert.equal(s.positions.length, 0);
+  assert.match(s.lastScan.top[0].rejects.join(), /Grok: skip/);
+  assert.equal(s.grok.vetoes, 1);
+  market.set('TOKEN1', { priceUsd: 0.0005 }); // dumped 50% after the block
+  clock += 31 * 60000;
+  await engine.tick();
+  s = engine.snapshot();
+  assert.equal(s.grok.vetoesWouldHitStop, 1);
+  assert.equal(s.grok.vetoesWouldHitTarget, 0);
+  assert.equal(s.grok.vetoes, 1, 'same coin is not recorded twice');
+});
+
+test('engine: low-confidence buy from Grok is also blocked in veto mode', async () => {
+  const cfg = testConfig({ grokMode: 'veto', grokMinConfidence: 60 });
+  const grok = fakeGrok({ decision: 'buy', confidence: 40, sentiment: 'neutral', summary: 'Unclear', redFlags: [] });
+  const engine = createEngine({ cfg, source: fakeMarket([goodToken()]), grok, store: createMemoryStore(), log: quiet });
+  await engine.tick();
+  assert.equal(engine.snapshot().positions.length, 0);
+});
+
+test('engine: Grok approval is recorded on the trade', async () => {
+  const cfg = testConfig({ grokMode: 'veto' });
+  const verdict = { decision: 'buy', confidence: 75, sentiment: 'bullish', summary: 'Real community', redFlags: [] };
+  const engine = createEngine({ cfg, source: fakeMarket([goodToken()]), grok: fakeGrok(verdict), store: createMemoryStore(), log: quiet });
+  await engine.tick();
+  assert.equal(engine.snapshot().positions[0].grok.summary, 'Real community');
+});
+
+test('engine: Grok down = no buy in veto mode, buy anyway in advise mode', async () => {
+  const veto = createEngine({ cfg: testConfig({ grokMode: 'veto' }), source: fakeMarket([goodToken()]), grok: fakeGrok(null, { fail: true }), store: createMemoryStore(), log: quiet });
+  await veto.tick();
+  assert.equal(veto.snapshot().positions.length, 0);
+  const advise = createEngine({ cfg: testConfig({ grokMode: 'advise' }), source: fakeMarket([goodToken()]), grok: fakeGrok(null, { fail: true }), store: createMemoryStore(), log: quiet });
+  await advise.tick();
+  assert.equal(advise.snapshot().positions.length, 1);
+});
+
+test('engine: Grok calls per scan are capped', async () => {
+  const cfg = testConfig({ grokMode: 'veto', grokMaxChecksPerScan: 2 });
+  const tokens = ['A', 'B', 'C', 'D'].map((a) => goodToken({ address: a }));
+  const grok = fakeGrok({ decision: 'skip', confidence: 90, sentiment: 'bearish', summary: 'no', redFlags: [] });
+  const engine = createEngine({ cfg, source: fakeMarket(tokens), grok, store: createMemoryStore(), log: quiet });
+  await engine.tick();
+  assert.equal(grok.calls.length, 2);
+  assert.ok(engine.snapshot().lastScan.top.some((c) => /waiting for a Grok check/.test(c.rejects.join())));
+});

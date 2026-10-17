@@ -8,6 +8,7 @@ const { createDexScreenerSource } = require('./sources/dexscreener');
 const { createMockSource } = require('./sources/mock');
 const { createRugCheck } = require('./safety');
 const { createJupiterFills } = require('./fills');
+const { createGrokAdvisor } = require('./grok');
 
 const cfg = loadConfig();
 if (cfg.tradingMode !== 'demo') {
@@ -24,7 +25,19 @@ const safety = cfg.rugCheck && !isMock && cfg.chain === 'solana'
 const fills = cfg.jupiterFills && !isMock && cfg.chain === 'solana'
   ? createJupiterFills({ baseUrl: cfg.jupiterBaseUrl })
   : null;
-const engine = createEngine({ cfg, source, safety, fills, store: createFileStore(cfg.dataDir) });
+if (!['off', 'advise', 'veto'].includes(cfg.grokMode)) {
+  console.error(`GROK_MODE must be off, advise or veto (got "${cfg.grokMode}")`);
+  process.exit(1);
+}
+if (cfg.grokMode !== 'off' && !cfg.xaiApiKey) {
+  console.error('GROK_MODE is on but XAI_API_KEY is not set. Add the key or set GROK_MODE=off.');
+  process.exit(1);
+}
+// Grok searches X for real tokens only; skip it on the mock market.
+const grok = cfg.grokMode !== 'off' && !isMock
+  ? createGrokAdvisor({ apiKey: cfg.xaiApiKey, model: cfg.grokModel, baseUrl: cfg.grokBaseUrl })
+  : null;
+const engine = createEngine({ cfg, source, safety, fills, grok, store: createFileStore(cfg.dataDir) });
 
 const app = express();
 app.disable('x-powered-by');
@@ -69,7 +82,7 @@ async function loop() {
 
 const server = app.listen(cfg.port, () => {
   console.log(
-    `Demo trading bot on port ${cfg.port} | source=${source.name} chain=${cfg.chain} rugcheck=${safety ? 'on' : 'off'} fills=${fills ? 'jupiter' : 'fixed'}`,
+    `Demo trading bot on port ${cfg.port} | source=${source.name} chain=${cfg.chain} rugcheck=${safety ? 'on' : 'off'} fills=${fills ? 'jupiter' : 'fixed'} grok=${grok ? cfg.grokMode : 'off'}`,
   );
   loop();
 });

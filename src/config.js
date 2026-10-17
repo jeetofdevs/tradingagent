@@ -69,6 +69,15 @@ function loadConfig() {
     minTxnsH1: num('MIN_TXNS_H1', 60),
     minScore: num('MIN_SCORE', 60),
 
+    // Grok second opinion (searches X before each buy). Needs XAI_API_KEY.
+    // 'veto' = Grok can block a buy, 'advise' = only recorded, 'off'.
+    xaiApiKey: str('XAI_API_KEY', ''),
+    grokMode: str('GROK_MODE', process.env.XAI_API_KEY ? 'veto' : 'off'),
+    grokModel: str('GROK_MODEL', 'grok-4.7'),
+    grokBaseUrl: str('GROK_BASE_URL', 'https://api.x.ai/v1'),
+    grokMinConfidence: num('GROK_MIN_CONFIDENCE', 60), // veto mode: buy needs this confidence
+    grokMaxChecksPerScan: num('GROK_MAX_CHECKS_PER_SCAN', 2), // limits cost and scan time
+
     // Safety check before each buy (RugCheck). 'on' or 'off'.
     rugCheck: str('RUGCHECK', 'on') !== 'off',
     maxRugRiskScore: num('MAX_RUG_RISK_SCORE', 50), // RugCheck normalised score, 0 = safest

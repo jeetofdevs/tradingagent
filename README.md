@@ -35,6 +35,14 @@ Every scan (default every 60 s):
    price impact, it skips the token. When selling, it quotes the exact token
    amount back to USDC. Quotes are read-only; nothing is signed or sent.
 
+7. **Grok second opinion** (optional, needs `XAI_API_KEY`). Grok searches X
+   for the token's contract address and ticker and judges the crowd: organic
+   community or bots, paid shills, rug or scam reports, hype rising or fading.
+   It answers buy or skip with a confidence. In `veto` mode a skip, or a buy
+   under 60% confidence, blocks the trade. Grok never sizes trades or changes
+   exits. The bot follows every coin Grok blocked for 3 hours, so the
+   dashboard shows whether Grok's calls saved money or cost it.
+
 The dashboard shows equity, win rate, average result per trade, profit factor,
 max drawdown, win and loss streaks, an edge check (is the result better than
 luck?), open positions, closed trades, and why each scanned token was or was
@@ -102,6 +110,11 @@ All optional, set as environment variables.
 | `MAX_PUMP_H1_PCT` | `150` | Skip if it already rose this much in 1 hour |
 | `MIN_SCORE` | `60` | Minimum score to buy |
 | `RUGCHECK` | `on` | `off` to skip the RugCheck safety check |
+| `XAI_API_KEY` | (empty) | xAI API key. Turns on the Grok check |
+| `GROK_MODE` | `veto` with a key, else `off` | `veto` = can block buys, `advise` = only records its view, `off` |
+| `GROK_MODEL` | `grok-4.7` | xAI model name |
+| `GROK_MIN_CONFIDENCE` | `60` | Veto mode: a buy needs at least this confidence |
+| `GROK_MAX_CHECKS_PER_SCAN` | `2` | Caps Grok calls (cost and time) per scan |
 | `MAX_RUG_RISK_SCORE` | `50` | RugCheck normalised risk score limit |
 
 ## Honest limits
@@ -114,4 +127,9 @@ All optional, set as environment variables.
   will always be faster.
 - **Most memecoins go to zero.** Treat good paper results with suspicion until
   the edge check holds up over many trades.
+- **Grok costs money per check** and each one can take up to a minute,
+  because X search runs several rounds. Checks only happen for coins that
+  already passed every other filter, at most 2 per scan, cached for 1 hour.
+- **Grok can be wrong or fooled.** Shill campaigns are built to look organic.
+  Judge it by the "Blocked, then dumped / pumped" numbers, not by its tone.
 - Live trading (a real wallet swapping through Jupiter) is not built in.

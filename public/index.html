@@ -67,6 +67,12 @@
     <svg id="chart" viewBox="0 0 1000 180" preserveAspectRatio="none" role="img" aria-label="Equity over time"></svg>
   </section>
 
+  <section class="panel" id="grokPanel" hidden>
+    <h2>Grok second opinion <span class="muted" id="grokInfo"></span></h2>
+    <div class="grid" id="grokTiles"></div>
+    <div class="scroll"><table id="vetoes"></table></div>
+  </section>
+
   <section class="panel">
     <h2>Open positions</h2>
     <div class="scroll"><table id="positions"></table></div>
@@ -170,7 +176,7 @@ function table(id, head, rows, empty) {
 
 function render(s) {
   const when = s.lastTickAt ? 'updated ' + ago(s.lastTickAt) : 'waiting for first scan';
-  $('status').innerHTML = `${esc(s.chain)} · data: ${esc(s.source)} · rug check: ${esc(s.safetyCheck)} · swap prices: ${esc(s.fills)} · ${s.paused ? '<span class="pill down">buying paused</span>' : '<span class="pill up">running</span>'} · ${when}`;
+  $('status').innerHTML = `${esc(s.chain)} · data: ${esc(s.source)} · rug check: ${esc(s.safetyCheck)} · swap prices: ${esc(s.fills)} · Grok: ${esc(s.grok.mode)} · ${s.paused ? '<span class="pill down">buying paused</span>' : '<span class="pill up">running</span>'} · ${when}`;
   tiles(s);
   const r = s.readiness;
   $('readySummary').textContent = r.ready ? '· all checks pass' : `· ${r.passed} of ${r.checks.length} checks pass`;
@@ -195,8 +201,25 @@ function render(s) {
   table('scan', ['Token', 'Score', 'Liquidity', '1h vol', '5m', '1h', 'Age', 'Verdict'],
     (sc?.top || []).map((c) => `<tr><td>${link(c.url, c.symbol)}</td><td>${c.score}</td><td>${compact(c.liquidityUsd)}</td>` +
       `<td>${compact(c.volH1)}</td><td class="${cls(c.chgM5)}">${pct(c.chgM5)}</td><td class="${cls(c.chgH1)}">${pct(c.chgH1)}</td>` +
-      `<td>${dur(c.ageMin * 60000)}</td><td class="wrap">${c.bought ? '<span class="up">bought</span>' : c.pass ? 'passed (no free slot)' : esc(c.rejects.join(' · '))}</td></tr>`),
+      `<td>${dur(c.ageMin * 60000)}</td><td class="wrap">${c.bought ? '<span class="up">bought</span>' + (c.grok ? ` · Grok ${esc(c.grok.decision)} ${c.grok.confidence}%: ${esc(c.grok.summary)}` : '') : c.pass ? 'passed (no free slot)' : esc(c.rejects.join(' · '))}</td></tr>`),
     'No scan yet.');
+
+  const gk = s.grok;
+  $('grokPanel').hidden = gk.mode === 'off';
+  if (gk.mode !== 'off') {
+    $('grokInfo').textContent = `· ${gk.model} · mode: ${gk.mode === 'veto' ? 'can block buys' : 'advice only'}`;
+    const t = (label, value, sub = '') => `<div class="tile"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
+    $('grokTiles').innerHTML = [
+      t('Trades Grok approved', gk.tradesJudged, gk.tradesJudged ? `win rate ${gk.winRatePct.toFixed(0)}%` : ''),
+      t('Buys Grok blocked', gk.vetoes, `${gk.vetoesScored} followed 30m+`),
+      t('Blocked, then dumped', gk.vetoesWouldHitStop, `fell ${s.settings.stopLossPct}%+: Grok saved you`),
+      t('Blocked, then pumped', gk.vetoesWouldHitTarget, `rose ${s.settings.takeProfitPct}%+: Grok cost you`),
+    ].join('');
+    table('vetoes', ['Blocked coin', 'Since block', 'Grok said', 'When'],
+      gk.recentVetoes.map((v) => `<tr><td>${link(v.url, v.symbol)}</td><td class="${cls(v.changePct)}">${pct(v.changePct)}</td>` +
+        `<td class="wrap">${v.confidence}% · ${esc(v.summary)}${v.redFlags?.length ? ' · ⚠ ' + esc(v.redFlags.join(', ')) : ''}</td><td>${ago(v.t)}</td></tr>`),
+      'Grok has not blocked any buys yet.');
+  }
 
   $('errorsPanel').hidden = !s.errors.length;
   $('errors').innerHTML = s.errors.slice(0, 5).map((e) => `${ago(e.t)}: ${esc(e.message)}`).join('<br>');
