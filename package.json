@@ -1,0 +1,19 @@
+{
+  "name": "tradingagent",
+  "version": "0.1.0",
+  "description": "Paper-trading memecoin bot with a web dashboard. Scores new Solana tokens from DexScreener and simulates trades.",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "DATA_SOURCE=mock SCAN_INTERVAL_SEC=3 node src/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}
