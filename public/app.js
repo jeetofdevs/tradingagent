@@ -80,6 +80,9 @@
     return h >>> 0;
   }
   function avatar(u, size = '') {
+    if (u && typeof u.avatarUrl === 'string' && u.avatarUrl.startsWith('/api/avatar/')) {
+      return `<img class="avatar ${size}" src="${esc(u.avatarUrl)}" alt="" loading="lazy">`;
+    }
     const h = hash((u && u.wallet) || '?');
     const a = 130 + (h % 120);
     const b = (a + 50 + ((h >> 9) % 90)) % 360;
@@ -628,6 +631,64 @@
     }
   }
 
+  // Crop to a centred square, shrink to 400x400 and re-encode in the browser,
+  // so uploads are small and any hidden data in the original file is dropped.
+  async function prepareAvatar(file) {
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) throw new Error('Use a PNG, JPG or WebP image');
+    if (file.size > 15 * 1024 * 1024) throw new Error('That image is too large (max 15 MB)');
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = () => reject(new Error('Could not read that image'));
+        i.src = url;
+      });
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 400;
+      canvas.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 400, 400);
+      const toBlob = (type, q) => new Promise((r) => canvas.toBlob(r, type, q));
+      let blob = await toBlob('image/webp', 0.86);
+      if (!blob || blob.type !== 'image/webp') blob = await toBlob('image/jpeg', 0.88);
+      return blob;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  async function uploadAvatar(file) {
+    const blob = await prepareAvatar(file);
+    const res = await fetch('/api/me/avatar', { method: 'PUT', credentials: 'same-origin', headers: { 'x-requested-with': 'app', 'content-type': blob.type }, body: blob });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Upload failed');
+    return data.user;
+  }
+
+  function avatarChanged(user) {
+    state.me = { ...state.me, avatarUrl: user.avatarUrl };
+    renderChrome();
+    const prev = $('#avatarPreview');
+    if (prev) prev.innerHTML = avatar(user, 'xl');
+    const rm = document.querySelector('[data-action="remove-avatar"]');
+    if (rm) rm.hidden = !user.avatarUrl;
+  }
+
+  document.addEventListener('change', async (e) => {
+    if (e.target.id !== 'avatarFile' || !e.target.files[0]) return;
+    const label = document.querySelector('label[for="avatarFile"]');
+    label.textContent = 'Uploading…';
+    try {
+      avatarChanged(await uploadAvatar(e.target.files[0]));
+      toast('Profile picture updated');
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      label.innerHTML = `${icon('edit', 'sm')} Upload photo`;
+      e.target.value = '';
+    }
+  });
+
   async function pageSettings() {
     if (!state.me) {
       setPage(`${mobileTop()}${pageHead('Your profile', 'Your profile is built from your NEAR account.')}
@@ -639,6 +700,18 @@
     const { user } = await api('/me');
     setPage(`${mobileTop()}${pageHead('Edit profile', `Signed in as <span class="mono">${esc(user.wallet)}</span>`)}
       <form class="card pad" data-form="profile">
+        <div class="avatar-edit">
+          <span id="avatarPreview">${avatar(user, 'xl')}</span>
+          <div>
+            <b>Profile picture</b>
+            <p class="muted">PNG, JPG or WebP. It is cropped to a square.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <label class="btn sm primary" for="avatarFile">${icon('edit', 'sm')} Upload photo</label>
+              <input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp" hidden>
+              <button class="btn sm ghost" type="button" data-action="remove-avatar" ${user.avatarUrl ? '' : 'hidden'}>Remove</button>
+            </div>
+          </div>
+        </div>
         <label class="field"><span>Display name</span><input type="text" name="name" maxlength="40" value="${esc(user.name)}" placeholder="What should people call you?"></label>
         <label class="field"><span>Bio</span><textarea name="bio" maxlength="280" rows="3" placeholder="Trader, builder, degen…">${esc(user.bio)}</textarea></label>
         <label class="field"><span>X handle</span><input type="text" name="xHandle" maxlength="16" value="${esc(user.xHandle)}" placeholder="without @"></label>
@@ -1013,6 +1086,11 @@
     const id = el.dataset.id;
     try {
       if (a === 'theme') return toggleTheme();
+      if (a === 'remove-avatar') {
+        const { user } = await api('/me/avatar', { method: 'DELETE' });
+        avatarChanged(user);
+        return toast('Profile picture removed');
+      }
       if (a === 'signin') return signIn();
       if (a === 'signout') return signOut();
       if (a === 'reply') return void (location.hash = `#/p/${id}`);

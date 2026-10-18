@@ -196,7 +196,7 @@ async function startApp(nearFake) {
       });
       const set = res.headers.get('set-cookie');
       if (set) cookie = set.split(';')[0];
-      return { status: res.status, body: await res.json() };
+      return { status: res.status, body: await res.json(), cookie };
     };
     if (account) {
       const c = (await call('/auth/challenge', { method: 'POST', body: {} })).body;
@@ -205,7 +205,7 @@ async function startApp(nearFake) {
     }
     return call;
   }
-  return { db, syncer, client, close: () => new Promise((r) => server.close(r)) };
+  return { db, syncer, client, base, close: () => new Promise((r) => server.close(r)) };
 }
 
 function world(...accounts) {
@@ -431,6 +431,38 @@ test('api: tip with any token shows its dollar value on the post', async () => {
     const tips = (await a('/users/bob.near/tips')).body.tips;
     assert.equal(tips[0].symbol, 'BLACKDRAGON');
     assert.equal((await a('/stats')).body.tipsUsd, 20);
+  } finally {
+    await app.close();
+  }
+});
+
+test('api: profile picture upload accepts real images only and serves them safely', async () => {
+  const alice = newAccount('alice.near');
+  const app = await startApp(fakeNear(world(alice)));
+  try {
+    const a = await app.client(alice);
+    const base = app.base;
+    const cookie = (await a('/me')).cookie;
+    const put = (bytes, type) => fetch(`${base}/me/avatar`, { method: 'PUT', headers: { 'x-requested-with': 'app', 'content-type': type, cookie }, body: bytes });
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), crypto.randomBytes(200)]);
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+
+    assert.equal((await put(svg, 'image/svg+xml')).status, 400, 'SVG rejected');
+    assert.equal((await put(Buffer.alloc(500 * 1024, 1), 'image/png')).status, 413, 'too big');
+    const ok = await put(png, 'image/png');
+    assert.equal(ok.status, 200);
+    const { user } = await ok.json();
+    assert.match(user.avatarUrl, /^\/api\/avatar\/alice\.near\?v=1$/);
+
+    const img = await fetch(`${base.replace(/\/api$/, '')}${user.avatarUrl}`);
+    assert.equal(img.headers.get('content-type'), 'image/png');
+    assert.equal(img.headers.get('x-content-type-options'), 'nosniff');
+    assert.deepEqual(Buffer.from(await img.arrayBuffer()), png);
+    assert.equal((await a('/users/alice.near')).body.user.avatarUrl, user.avatarUrl);
+
+    const anonPut = await fetch(`${base}/me/avatar`, { method: 'PUT', headers: { 'x-requested-with': 'app', 'content-type': 'image/png' }, body: png });
+    assert.equal(anonPut.status, 401);
+    assert.equal((await a('/me/avatar', { method: 'DELETE' })).body.user.avatarUrl, null);
   } finally {
     await app.close();
   }

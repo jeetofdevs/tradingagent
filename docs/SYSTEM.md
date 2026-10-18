@@ -26,7 +26,7 @@ layer: posts, replies, likes, reposts, follows and NEAR tips.
 | On-chain (public, permanent) | Off-chain (this server) |
 |---|---|
 | NEAR account and its keys | Profile name, bio, X handle |
-| Token balances and every swap | Posts, replies, likes, reposts, follows |
+| Token balances and every swap | Posts, replies, likes, reposts, follows, profile pictures |
 | Tips (real NEAR transfers) | Cached copy of trades, for speed |
 
 ## Compared with other on-chain social apps
@@ -85,6 +85,9 @@ Express server (Railway)
   (`SESSION_SECRET`), 30-day expiry.
 - Every write needs the session plus an `X-Requested-With` header, which
   blocks cross-site forged requests.
+- Profile pictures: PNG, JPEG or WebP only, checked by file signature (SVG
+  is refused because it can carry scripts), max 400 KB, served with
+  `nosniff` and a locked-down Content-Security-Policy.
 - All user text is escaped in the browser; only `https://` links become
   links. Token icons are shown only if they are images.
 - Tips count only after the server finds the transfer on-chain, once per

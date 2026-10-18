@@ -63,7 +63,14 @@ function createSocialRouter({ db, auth, near, portfolio, syncer, cfg, now = () =
 
   function publicUser(u) {
     if (!u) return null;
-    return { wallet: u.wallet, name: u.name, bio: u.bio, xHandle: u.x_handle, createdAt: u.created_at };
+    return {
+      wallet: u.wallet,
+      name: u.name,
+      bio: u.bio,
+      xHandle: u.x_handle,
+      createdAt: u.created_at,
+      avatarUrl: u.avatar_v ? `/api/avatar/${encodeURIComponent(u.wallet)}?v=${u.avatar_v}` : null,
+    };
   }
 
   // Attach authors, counts, viewer state, originals and trades to posts.
@@ -208,6 +215,45 @@ function createSocialRouter({ db, auth, near, portfolio, syncer, cfg, now = () =
     if (xHandle && !/^[A-Za-z0-9_]{1,15}$/.test(xHandle)) return fail(res, 400, 'X handle can only use letters, numbers and _');
     updateUser.run(name, bio, xHandle, req.body?.shareTrades === false ? 0 : 1, req.wallet);
     res.json({ user: publicUser(getUser.get(req.wallet)) });
+  });
+
+  // ---- profile pictures ---------------------------------------------------
+  // Only PNG, JPEG and WebP, checked by their first bytes (never SVG, which
+  // can carry scripts). The browser crops and shrinks images before upload.
+
+  const MAX_AVATAR = 400 * 1024;
+  function imageType(buf) {
+    if (buf.length > 8 && buf[0] === 0x89 && buf.toString('latin1', 1, 4) === 'PNG') return 'image/png';
+    if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+    if (buf.length > 12 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
+    return null;
+  }
+
+  router.put('/me/avatar', express.raw({ type: () => true, limit: MAX_AVATAR }), requireUser, (req, res) => {
+    const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const mime = imageType(buf);
+    if (!mime) return fail(res, 400, 'Use a PNG, JPEG or WebP image');
+    if (!limit(`avatar:${req.wallet}`, 10, 60 * 60000)) return fail(res, 429, 'Too many uploads, try again later');
+    db.prepare(`INSERT INTO avatars (wallet, mime, data, updated_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(wallet) DO UPDATE SET mime = excluded.mime, data = excluded.data, updated_at = excluded.updated_at`).run(req.wallet, mime, buf, now());
+    db.prepare('UPDATE users SET avatar_v = avatar_v + 1 WHERE wallet = ?').run(req.wallet);
+    res.json({ user: publicUser(getUser.get(req.wallet)) });
+  });
+
+  router.delete('/me/avatar', requireUser, (req, res) => {
+    db.prepare('DELETE FROM avatars WHERE wallet = ?').run(req.wallet);
+    db.prepare('UPDATE users SET avatar_v = 0 WHERE wallet = ?').run(req.wallet);
+    res.json({ user: publicUser(getUser.get(req.wallet)) });
+  });
+
+  router.get('/avatar/:wallet', (req, res) => {
+    const row = db.prepare('SELECT mime, data FROM avatars WHERE wallet = ?').get(req.params.wallet);
+    if (!row) return res.status(404).end();
+    res.setHeader('Content-Type', row.mime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // URL changes on every upload
+    res.end(Buffer.from(row.data));
   });
 
   // ---- posts ---------------------------------------------------------------
@@ -672,6 +718,10 @@ function createSocialRouter({ db, auth, near, portfolio, syncer, cfg, now = () =
   // Errors from RPC or price services: tell the browser, keep running.
   // eslint-disable-next-line no-unused-vars
   router.use((err, _req, res, _next) => {
+    // Bad requests (e.g. upload too large) keep their own status.
+    if (err.status >= 400 && err.status < 500) {
+      return fail(res, err.status, err.status === 413 ? 'That file is too large (max 400 KB)' : err.message);
+    }
     console.error('social api:', err.message);
     fail(res, 502, `Upstream error: ${err.message}`);
   });

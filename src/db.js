@@ -29,6 +29,13 @@ CREATE TABLE IF NOT EXISTS users (
   backfilled INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS avatars (
+  wallet TEXT PRIMARY KEY REFERENCES users(wallet),
+  mime TEXT NOT NULL,
+  data BLOB NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS nonces (
   nonce TEXT PRIMARY KEY,
   recipient TEXT NOT NULL,
@@ -121,6 +128,7 @@ function migrate(db) {
   add('tips', 'token', "TEXT NOT NULL DEFAULT 'near'");
   add('tips', 'symbol', "TEXT NOT NULL DEFAULT 'NEAR'");
   add('tips', 'usd', 'REAL NOT NULL DEFAULT 0');
+  add('users', 'avatar_v', 'INTEGER NOT NULL DEFAULT 0');
 }
 
 function openDb(dataDir) {

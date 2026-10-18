@@ -513,3 +513,10 @@ body.landing .layout { grid-template-columns: 250px minmax(0, 980px); }
 .kicker { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; color: var(--mint); background: var(--mint-soft); padding: 5px 11px; border-radius: 999px; }
 .mock-float.tip { bottom: auto; top: 168px; left: -30px; }
 @media (max-width: 780px) { .mock-float.tip { left: -8px; top: 150px; } }
+
+/* ---------- profile picture ---------- */
+img.avatar { object-fit: cover; background: var(--surface-3); }
+.avatar-edit { display: flex; gap: 18px; align-items: center; padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+.avatar-edit b { display: block; }
+.avatar-edit p { margin: 2px 0 10px; font-size: 13.5px; }
+label.btn { cursor: pointer; }

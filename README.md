@@ -14,7 +14,7 @@ See [docs/SYSTEM.md](docs/SYSTEM.md) for how the system works: data flow, archit
 | Feature | How it works |
 |---|---|
 | Sign in | Meteor, HOT, Intear, HERE or MyNearWallet signs a message (NEP-413). Free, not a transaction |
-| Profile | Name, bio, X handle, followers, following, tips received |
+| Profile | Profile picture, name, bio, X handle, followers, following, tips received. Pictures are cropped to a square and shrunk in the browser; the server accepts only real PNG, JPEG or WebP files up to 400 KB |
 | Holdings | Native NEAR + every fungible token, priced in USD |
 | Profit | Realized + unrealized PnL per token (average-cost method), win rate |
 | Trade history | Swaps found in the account's token transfers (NEAR/USDC/USDT ↔ token) |
