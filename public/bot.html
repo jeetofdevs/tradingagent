@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memecoin Demo Bot</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #16181d; --muted: #646b78; --line: #e3e6eb;
+    --up: #0f8a5f; --down: #c4314b; --accent: #4b5bd6; --warn-bg: #fff6e0; --warn-text: #7a5300;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --panel: #171a21; --text: #e8eaee; --muted: #9aa2b1; --line: #272b35;
+      --up: #3ccf91; --down: #ff6b81; --accent: #8c98ff; --warn-bg: #2b2412; --warn-text: #f3cf7a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1200px; margin: 0 auto; padding: 16px; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  .muted { color: var(--muted); }
+  .banner { background: var(--warn-bg); color: var(--warn-text); border-radius: 8px; padding: 8px 12px; margin: 12px 0; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 12px 0; }
+  .tile, .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .tile .label { color: var(--muted); font-size: 12px; }
+  .tile .value { font-size: 20px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .tile .sub { color: var(--muted); font-size: 12px; }
+  .panel { margin: 12px 0; }
+  .up { color: var(--up); } .down { color: var(--down); }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.wrap { white-space: normal; min-width: 220px; color: var(--muted); font-size: 12px; }
+  a { color: var(--accent); }
+  svg { display: block; width: 100%; height: 180px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button, input { font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 6px 10px; }
+  button { cursor: pointer; }
+  button.danger { color: var(--down); }
+  .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .checks li { display: flex; gap: 8px; align-items: baseline; }
+  .checks .mark { width: 1.2em; font-weight: 700; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; border: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Memecoin Demo Bot</h1>
+    <span class="muted" id="status">Loading…</span>
+  </header>
+  <div class="banner">Demo fund: real Solana prices, real strategy, real swap quotes. No wallet, no real money moves.</div>
+
+  <div class="grid" id="tiles"></div>
+
+  <section class="panel">
+    <h2>Ready for real money? <span class="muted" id="readySummary"></span></h2>
+    <ul class="checks" id="readiness"></ul>
+  </section>
+
+  <section class="panel">
+    <h2>Equity</h2>
+    <svg id="chart" viewBox="0 0 1000 180" preserveAspectRatio="none" role="img" aria-label="Equity over time"></svg>
+  </section>
+
+  <section class="panel" id="grokPanel" hidden>
+    <h2>Grok second opinion <span class="muted" id="grokInfo"></span></h2>
+    <div class="grid" id="grokTiles"></div>
+    <div class="scroll"><table id="vetoes"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Open positions</h2>
+    <div class="scroll"><table id="positions"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Recent trades</h2>
+    <div class="scroll"><table id="trades"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Last scan <span class="muted" id="scanInfo"></span></h2>
+    <div class="scroll"><table id="scan"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Controls</h2>
+    <div class="controls" id="controls">
+      <input id="token" type="password" placeholder="Admin token" autocomplete="off">
+      <button data-action="pause">Pause buying</button>
+      <button data-action="resume">Resume</button>
+      <button data-action="close-all">Sell all</button>
+      <button data-action="reset" class="danger">Reset everything</button>
+      <span class="muted" id="controlMsg"></span>
+    </div>
+  </section>
+
+  <section class="panel" id="errorsPanel" hidden>
+    <h2>Recent errors</h2>
+    <div id="errors" class="muted"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Settings</h2>
+    <div id="settings" class="muted"></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const usd = (v) => (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+const pct = (v) => (v > 0 ? '+' : '') + v.toFixed(1) + '%';
+const fillCost = (v) => (v == null ? '—' : v.toFixed(1) + '%');
+const cls = (v) => (v > 0 ? 'up' : v < 0 ? 'down' : '');
+const price = (v) => (v >= 1 ? v.toFixed(4) : v.toPrecision(4));
+const compact = (v) => '$' + Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(v);
+const ago = (t) => {
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 90) return Math.round(s) + 's ago';
+  if (s < 5400) return Math.round(s / 60) + 'm ago';
+  return Math.round(s / 3600) + 'h ago';
+};
+const dur = (ms) => (ms < 3600000 ? Math.round(ms / 60000) + 'm' : (ms / 3600000).toFixed(1) + 'h');
+// Only link to DexScreener; token data comes from strangers.
+const link = (url, text) => (/^https:\/\/dexscreener\.com\//.test(url || '') ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(text)}</a>` : esc(text));
+
+const edgeText = {
+  'not-enough-trades': (e) => `Need ${e.needed - e.trades} more trades`,
+  'could-be-luck': () => 'Could be luck',
+  'likely-real-edge': () => 'Likely real edge',
+  'likely-losing': () => 'Likely losing',
+};
+
+function tiles(s) {
+  const st = s.stats;
+  const t = (label, value, sub = '', c = '') => `<div class="tile"><div class="label">${label}</div><div class="value ${c}">${value}</div><div class="sub">${sub}</div></div>`;
+  const streak = st.currentStreak ? `${st.currentStreak.length} ${st.currentStreak.type === 'win' ? 'win' : 'loss'}${st.currentStreak.length > 1 ? (st.currentStreak.type === 'win' ? 's' : 'es') : ''}` : '—';
+  const pf = st.profitFactor === null ? '∞' : st.profitFactor.toFixed(2);
+  $('tiles').innerHTML = [
+    t('Equity', usd(s.equityUsd), `cash ${usd(s.balanceUsd)}`),
+    t('Return', pct(st.returnPct), `start ${usd(s.startBalanceUsd)}`, cls(st.returnPct)),
+    t('Win rate', st.trades ? st.winRatePct.toFixed(0) + '%' : '—', `${st.wins}W / ${st.losses}L`),
+    t('Avg per trade', st.trades ? usd(st.expectancyUsd) : '—', `win ${pct(st.avgWinPct)} · loss ${pct(st.avgLossPct)}`, cls(st.expectancyUsd)),
+    t('Profit factor', st.trades ? pf : '—', 'gross win ÷ gross loss'),
+    t('Max drawdown', '-' + st.maxDrawdownPct.toFixed(1) + '%', 'worst drop from a peak', st.maxDrawdownPct > 0 ? 'down' : ''),
+    t('Streak', streak, `best ${st.bestWinStreak}W · worst ${st.worstLossStreak}L`),
+    t('Edge check', edgeText[st.edge.verdict](st.edge), st.edge.tStat === null ? 'needs 30+ trades' : `t = ${st.edge.tStat.toFixed(2)} (2+ = real)`),
+  ].join('');
+}
+
+function chart(points, start) {
+  const svg = $('chart');
+  if (points.length < 2) { svg.innerHTML = ''; return; }
+  const xs = points.map((p) => p.t), ys = points.map((p) => p.v).concat(start);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const pad = (y1 - y0) * 0.1 || 1;
+  const X = (t) => ((t - x0) / (x1 - x0 || 1)) * 1000;
+  const Y = (v) => 175 - ((v - (y0 - pad)) / (y1 - y0 + 2 * pad)) * 170;
+  const d = points.map((p, i) => (i ? 'L' : 'M') + X(p.t).toFixed(1) + ' ' + Y(p.v).toFixed(1)).join(' ');
+  const last = points[points.length - 1].v;
+  const color = last >= start ? 'var(--up)' : 'var(--down)';
+  svg.innerHTML = `<line x1="0" x2="1000" y1="${Y(start)}" y2="${Y(start)}" stroke="var(--line)" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>` +
+    `<path d="${d}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+}
+
+function table(id, head, rows, empty) {
+  $(id).innerHTML = rows.length
+    ? `<thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody>`
+    : `<tbody><tr><td class="muted">${empty}</td></tr></tbody>`;
+}
+
+function render(s) {
+  const when = s.lastTickAt ? 'updated ' + ago(s.lastTickAt) : 'waiting for first scan';
+  $('status').innerHTML = `${esc(s.chain)} · data: ${esc(s.source)} · rug check: ${esc(s.safetyCheck)} · swap prices: ${esc(s.fills)} · Grok: ${esc(s.grok.mode)} · ${s.paused ? '<span class="pill down">buying paused</span>' : '<span class="pill up">running</span>'} · ${when}`;
+  tiles(s);
+  const r = s.readiness;
+  $('readySummary').textContent = r.ready ? '· all checks pass' : `· ${r.passed} of ${r.checks.length} checks pass`;
+  $('readiness').innerHTML = r.checks.map((c) => `<li><span class="mark ${c.ok ? 'up' : 'down'}">${c.ok ? '✓' : '✗'}</span><span>${esc(c.label)} <span class="muted">(${esc(c.detail)})</span></span></li>`).join('');
+  chart(s.equity, s.startBalanceUsd);
+
+  table('positions', ['Token', 'Size', 'Value', 'P/L', 'Entry', 'Now', 'Peak', 'Held', 'Score'],
+    s.positions.map((p) => `<tr><td>${link(p.url, p.symbol)}</td><td>${usd(p.costUsd)}</td><td>${usd(p.valueUsd)}</td>` +
+      `<td class="${cls(p.pnlPct)}">${pct(p.pnlPct)}</td><td>${price(p.entryPriceUsd)}</td><td>${price(p.lastPriceUsd)}</td>` +
+      `<td>${pct((p.peakPriceUsd / p.entryPriceUsd - 1) * 100)}</td><td>${dur(Date.now() - p.openedAt)}</td><td>${p.score}</td></tr>`),
+    'No open positions.');
+
+  table('trades', ['Token', 'Result', 'P/L', 'Peak', 'Exit reason', 'Swap cost in / out', 'Held', 'Closed'],
+    s.trades.map((t) => `<tr><td>${link(t.url, t.symbol)}</td><td class="${cls(t.pnlUsd)}">${pct(t.pnlPct)}</td>` +
+      `<td class="${cls(t.pnlUsd)}">${usd(t.pnlUsd)}</td><td>${pct(t.peakPct)}</td><td>${esc(t.reason)}</td>` +
+      `<td title="${esc((t.entryFill || 'fixed') + ' / ' + (t.exitFill || 'fixed'))}">${fillCost(t.entrySlippagePct)} / ${fillCost(t.exitSlippagePct)}</td>` +
+      `<td>${dur(t.closedAt - t.openedAt)}</td><td>${ago(t.closedAt)}</td></tr>`),
+    'No closed trades yet.');
+
+  const sc = s.lastScan;
+  $('scanInfo').textContent = sc ? `· ${sc.total} tokens checked, ${sc.passed} passed, ${sc.bought} bought · ${ago(sc.t)}` : '';
+  table('scan', ['Token', 'Score', 'Liquidity', '1h vol', '5m', '1h', 'Age', 'Verdict'],
+    (sc?.top || []).map((c) => `<tr><td>${link(c.url, c.symbol)}</td><td>${c.score}</td><td>${compact(c.liquidityUsd)}</td>` +
+      `<td>${compact(c.volH1)}</td><td class="${cls(c.chgM5)}">${pct(c.chgM5)}</td><td class="${cls(c.chgH1)}">${pct(c.chgH1)}</td>` +
+      `<td>${dur(c.ageMin * 60000)}</td><td class="wrap">${c.bought ? '<span class="up">bought</span>' + (c.grok ? ` · Grok ${esc(c.grok.decision)} ${c.grok.confidence}%: ${esc(c.grok.summary)}` : '') : c.pass ? 'passed (no free slot)' : esc(c.rejects.join(' · '))}</td></tr>`),
+    'No scan yet.');
+
+  const gk = s.grok;
+  $('grokPanel').hidden = gk.mode === 'off';
+  if (gk.mode !== 'off') {
+    $('grokInfo').textContent = `· ${gk.model} · mode: ${gk.mode === 'veto' ? 'can block buys' : 'advice only'}`;
+    const t = (label, value, sub = '') => `<div class="tile"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
+    $('grokTiles').innerHTML = [
+      t('Trades Grok approved', gk.tradesJudged, gk.tradesJudged ? `win rate ${gk.winRatePct.toFixed(0)}%` : ''),
+      t('Buys Grok blocked', gk.vetoes, `${gk.vetoesScored} followed 30m+`),
+      t('Blocked, then dumped', gk.vetoesWouldHitStop, `fell ${s.settings.stopLossPct}%+: Grok saved you`),
+      t('Blocked, then pumped', gk.vetoesWouldHitTarget, `rose ${s.settings.takeProfitPct}%+: Grok cost you`),
+    ].join('');
+    table('vetoes', ['Blocked coin', 'Since block', 'Grok said', 'When'],
+      gk.recentVetoes.map((v) => `<tr><td>${link(v.url, v.symbol)}</td><td class="${cls(v.changePct)}">${pct(v.changePct)}</td>` +
+        `<td class="wrap">${v.confidence}% · ${esc(v.summary)}${v.redFlags?.length ? ' · ⚠ ' + esc(v.redFlags.join(', ')) : ''}</td><td>${ago(v.t)}</td></tr>`),
+      'Grok has not blocked any buys yet.');
+  }
+
+  $('errorsPanel').hidden = !s.errors.length;
+  $('errors').innerHTML = s.errors.slice(0, 5).map((e) => `${ago(e.t)}: ${esc(e.message)}`).join('<br>');
+
+  const g = s.settings;
+  $('settings').textContent = `Scan every ${g.scanIntervalSec}s · ${g.positionSizePct}% per trade · max ${g.maxOpenPositions} open · ` +
+    `take profit +${g.takeProfitPct}% · stop loss -${g.stopLossPct}% · trailing stop ${g.trailingStopPct}% after +${g.trailingArmPct}% · ` +
+    `max hold ${g.maxHoldMin}m · swap cost: ${s.fills === 'jupiter' ? `Jupiter quote + ${g.extraCostPerSidePct}% network fees, skip if over ${g.maxEntrySlippagePct}%` : `flat ${g.costPerSidePct}%`} per side · ` +
+    `min score ${g.minScore} · min liquidity ${compact(g.minLiquidityUsd)}`;
+
+  $('controls').querySelectorAll('button').forEach((b) => { b.disabled = !s.controlsEnabled; });
+  if (!s.controlsEnabled) $('controlMsg').textContent = 'Set ADMIN_TOKEN on the server to turn controls on.';
+}
+
+async function refresh() {
+  try {
+    const res = await fetch('/api/state');
+    render(await res.json());
+  } catch (err) {
+    $('status').textContent = 'Cannot reach the bot: ' + err.message;
+  }
+}
+
+try { $('token').value = localStorage.getItem('adminToken') || ''; } catch {}
+$('controls').addEventListener('click', async (e) => {
+  const action = e.target.dataset?.action;
+  if (!action) return;
+  if (action === 'reset' && !confirm('Delete all trades and start over?')) return;
+  const token = $('token').value;
+  try { localStorage.setItem('adminToken', token); } catch {}
+  const res = await fetch('/api/control/' + action, { method: 'POST', headers: { 'x-admin-token': token } });
+  const body = await res.json().catch(() => ({}));
+  $('controlMsg').textContent = res.ok ? 'Done.' : body.error || 'Failed.';
+  refresh();
+});
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

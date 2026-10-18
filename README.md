@@ -1,4 +1,45 @@
-# Memecoin Demo Bot
+# SolCircle
+
+**The social network for Solana traders where every profile is backed by
+the chain.** Connect a wallet and your profile shows what you hold, your
+profit and your trade history, read straight from Solana. Post, reply,
+like, repost, follow, and tip anyone in SOL. A demo-fund memecoin trading
+bot runs alongside at `/bot`.
+
+See [ROADMAP.md](ROADMAP.md) for the plan, architecture and security notes.
+
+## Social features
+
+| Feature | How it works |
+|---|---|
+| Sign in | Phantom, Solflare or Backpack signs a text message (free, not a transaction) |
+| Profile | Name, bio, X handle, followers, tips received |
+| Holdings | Live SOL and token balances from Solana RPC, priced with DexScreener |
+| Profit | Realized + unrealized PnL per token, average-cost method, win rate |
+| Trade history | Swaps parsed from the wallet's transactions (SOL/USDC/USDT ↔ token) |
+| Recent trades | Every member's buys and sells, newest first |
+| Feed | Latest and Following tabs; new trades auto-posted (can be turned off) |
+| Like, repost, reply | Like Near Social / X |
+| Tip | SOL sent wallet-to-wallet; the server checks it on-chain before it shows |
+| Leaderboard | Members ranked by profit on recorded trades |
+| Roadmap | In-app page and ROADMAP.md |
+
+Social settings (environment variables):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `APP_NAME` | `SolCircle` | Site name |
+| `SESSION_SECRET` | (random each start) | **Set this**, a long random string, or everyone is logged out on restart |
+| `SOLANA_RPC_URL` | public mainnet RPC | **Use a provider URL** (e.g. Helius) for real traffic; the public one is rate limited |
+| `MIN_TIP_SOL` | `0.001` | Smallest tip accepted |
+| `SYNC_INTERVAL_SEC` | `300` | How often members' wallets are checked for new trades |
+| `SYNC_BACKFILL_TX` | `40` | Transactions read when a wallet joins |
+
+Preview locally with sample data: `DATA_DIR=./data npm run seed && npm run dev`.
+
+---
+
+# Memecoin Demo Bot (at /bot)
 
 A Solana memecoin trading bot with a web dashboard. It watches new and
 trending tokens on DexScreener, filters out likely rugs, scores the rest, and
@@ -54,10 +95,12 @@ not bought.
 2. On [railway.com](https://railway.com): **New Project → Deploy from GitHub
    repo** → pick this repo. Railway detects Node and runs `npm start`.
 3. **Settings → Networking → Generate Domain** to get the website URL.
+   The social site is at `/`, the bot dashboard at `/bot`.
 4. **Add a volume** so trade history survives redeploys: right-click the
    service → **Attach Volume**, mount path `/data`. Then add the variable
    `DATA_DIR=/data`.
-5. **Variables** (optional): set `ADMIN_TOKEN` to a long random string to turn
+5. **Variables**: set `SESSION_SECRET` (long random string) and
+   `SOLANA_RPC_URL` (e.g. a free Helius RPC URL). Optional: set `ADMIN_TOKEN` to a long random string to turn
    on the Pause, Resume, Sell all and Reset buttons. Without it the dashboard
    is read-only. Change any setting below the same way.
 

@@ -1,16 +1,17 @@
 {
   "name": "tradingagent",
   "version": "0.1.0",
-  "description": "Demo-fund memecoin bot with a web dashboard. Scores new Solana tokens from DexScreener and simulates trades.",
+  "description": "SolCircle: social network for Solana traders with on-chain holdings, profit and trade history, plus a demo-fund memecoin bot.",
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
     "dev": "DATA_SOURCE=mock SCAN_INTERVAL_SEC=3 node src/server.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "seed": "node scripts/seed-demo.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "license": "MIT",
   "dependencies": {

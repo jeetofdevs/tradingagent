@@ -9,6 +9,12 @@ const { createMockSource } = require('./sources/mock');
 const { createRugCheck } = require('./safety');
 const { createJupiterFills } = require('./fills');
 const { createGrokAdvisor } = require('./grok');
+const { openDb } = require('./social/db');
+const { createAuth } = require('./social/auth');
+const { createRpc } = require('./social/solana');
+const { createPortfolio } = require('./social/portfolio');
+const { createSyncer } = require('./social/sync');
+const { createSocialRouter } = require('./social/routes');
 
 const cfg = loadConfig();
 if (cfg.tradingMode !== 'demo') {
@@ -39,10 +45,29 @@ const grok = cfg.grokMode !== 'off' && !isMock
   : null;
 const engine = createEngine({ cfg, source, safety, fills, grok, store: createFileStore(cfg.dataDir) });
 
+// ---- social layer ----
+const db = openDb(cfg.dataDir);
+if (!cfg.sessionSecret) console.warn('SESSION_SECRET is not set: users will be logged out on every restart.');
+const auth = createAuth({ db, appName: cfg.appName, secret: cfg.sessionSecret });
+const rpc = createRpc({ url: cfg.solanaRpcUrl });
+// Wallet prices always use real DexScreener data, even when the bot runs on the mock market.
+const priceSource = isMock ? createDexScreenerSource({ chain: 'solana' }) : source;
+const portfolio = createPortfolio({ db, rpc, quotes: (mints) => priceSource.quotes(mints) });
+const syncer = createSyncer({ db, rpc, portfolio, cfg });
+
 const app = express();
 app.disable('x-powered-by');
-app.use(express.json());
+app.set('trust proxy', 1); // Railway sits behind a proxy
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  next();
+});
+app.use(express.json({ limit: '20kb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
+app.get('/bot', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'bot.html')));
+app.use('/api', createSocialRouter({ db, auth, rpc, portfolio, syncer, cfg }));
 
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 app.get('/api/state', (_req, res) => res.json({ ...engine.snapshot(), controlsEnabled: Boolean(cfg.adminToken) }));
@@ -85,10 +110,12 @@ const server = app.listen(cfg.port, () => {
     `Demo trading bot on port ${cfg.port} | source=${source.name} chain=${cfg.chain} rugcheck=${safety ? 'on' : 'off'} fills=${fills ? 'jupiter' : 'fixed'} grok=${grok ? cfg.grokMode : 'off'}`,
   );
   loop();
+  syncer.start();
 });
 
 function shutdown() {
   clearTimeout(timer);
+  syncer.stop();
   engine.save();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 3000).unref();

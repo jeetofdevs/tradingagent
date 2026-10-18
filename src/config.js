@@ -19,6 +19,15 @@ function str(name, fallback) {
 function loadConfig() {
   return {
     port: num('PORT', 3000),
+    appName: str('APP_NAME', 'SolCircle'),
+    // Signs login cookies. Set it on Railway, or everyone is logged out on each restart.
+    sessionSecret: str('SESSION_SECRET', ''),
+    // Public RPC is rate limited; use a provider URL (Helius, Triton, QuickNode) for real use.
+    solanaRpcUrl: str('SOLANA_RPC_URL', 'https://api.mainnet-beta.solana.com'),
+    minTipSol: num('MIN_TIP_SOL', 0.001),
+    syncIntervalSec: num('SYNC_INTERVAL_SEC', 300),
+    syncBackfillTx: num('SYNC_BACKFILL_TX', 40), // transactions read when a wallet joins
+    syncWalletsPerRound: num('SYNC_WALLETS_PER_ROUND', 10),
     dataDir: str('DATA_DIR', './data'),
     adminToken: str('ADMIN_TOKEN', ''),
 
