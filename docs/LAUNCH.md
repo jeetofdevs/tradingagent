@@ -23,9 +23,9 @@ Option B, re-render all PNGs:
 npm i -D playwright && npx playwright install chromium
 npm run dev    # in another terminal
 node scripts/render-brand.js --ca=YOUR_CONTRACT --url=https://YOUR-SITE
+```
 
 `launch-post.png` in this repo is already rendered with `--ca=social-2.nearlytrade.near --url=x.com/nearsocialfun`.
-```
 
 Always copy the CA from the deploy transaction, never retype it. Check the
 rendered image character by character before posting.
