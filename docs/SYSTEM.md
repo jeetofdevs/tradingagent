@@ -13,7 +13,10 @@ layer: posts, replies, likes, reposts, follows and NEAR tips.
    from the NEAR blockchain.
 3. **Post and follow.** Share calls, reply, like, repost, follow traders;
    their new trades appear in your feed.
-4. **Tip.** Send NEAR to a post or profile, wallet to wallet. The site
+4. **Copy.** Pick traders to copy and an amount per trade. Their buys and
+   sells become signals with a ready-made swap you approve in your own
+   wallet. Nothing trades automatically.
+5. **Tip.** Send NEAR to a post or profile, wallet to wallet. The site
    checks the transfer on-chain before showing it.
 
 ## What lives where
@@ -32,10 +35,24 @@ layer: posts, replies, likes, reposts, follows and NEAR tips.
 | Sign in | NEAR wallet | NEAR wallet | Farcaster account | Lens profile |
 | Profit and holdings on profile | Yes, from chain | No | No | No |
 | Trades auto-posted to feed | Yes | No | No | No |
+| Copy trading | Yes (you approve each swap) | No | No | No |
 | Tips in native token | Yes (NEAR) | Via apps | Via apps | Via apps |
 | Posts stored | Server | On-chain (SocialDB) | Hubs (off-chain network) | Lens Chain + storage network |
 
 Feature summary only; other apps change often.
+
+## Copy trading
+
+- Stored per follower: leader, amount per trade (USD), start time. Copying
+  a trader also follows them.
+- Signals: the leader's trades since the copy started, each with a swap
+  link (`COPY_SWAP_URL`).
+- Results are simulated (`src/copy.js`): every leader buy is copied at the
+  follower's amount; every leader sell sells the same fraction of the copied
+  position; leader sells of tokens bought before the copy started are
+  ignored; 1% swap cost each way (`COPY_COST_PCT`); open positions are valued
+  at the current price.
+- No custody: the server never signs or sends trades.
 
 ## Fees
 

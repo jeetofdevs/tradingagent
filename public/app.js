@@ -26,6 +26,9 @@
     shield: '<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
     spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>',
     logout: '<path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4"/><path d="M10 17l-5-5 5-5M5 12h11"/>',
+    copytrade: '<rect x="8" y="8" width="13" height="13" rx="3"/><path d="M16 8V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v7a3 3 0 0 0 3 3h2"/><path d="m12 15 2 2 4-4"/>',
+    external: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>',
+    bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
     edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/>',
   };
@@ -40,10 +43,22 @@
   const signedUsd = (v) => (v == null ? '—' : (v > 0 ? '+' : '') + usd(v));
   const compactUsd = (v) => (v == null ? '—' : '$' + Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 2 }).format(v));
   const amount = (v) => (v == null ? '—' : v >= 1000 ? Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 2 }).format(v) : Number(Number(v).toPrecision(4)).toString());
+  // Tiny prices: $0.0₈41 means 8 zeros after the decimal point, then 41.
+  const SUB = '₀₁₂₃₄₅₆₇₈₉';
+  function fmtPrice(v) {
+    if (v == null || !(v > 0)) return '—';
+    if (v >= 0.01) return usd(v, v >= 1 ? 2 : 4);
+    const zeros = Math.floor(-Math.log10(v));
+    if (zeros < 4) return '$' + v.toFixed(zeros + 3).replace(/0+$/, '');
+    const digits = Math.round(v * 10 ** (zeros + 3)).toString().slice(0, 3).replace(/0+$/, '');
+    return `$0.0${String(zeros).split('').map((d) => SUB[d]).join('')}${digits}`;
+  }
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
   const cls = (v) => (v > 0 ? 'up' : v < 0 ? 'down' : '');
   const txUrl = (h) => `https://nearblocks.io/txns/${encodeURIComponent(h)}`;
   const accountUrl = (a) => `https://nearblocks.io/address/${encodeURIComponent(a)}`;
   const tokenUrl = (c) => (c === 'near' ? 'https://nearblocks.io' : `https://nearblocks.io/token/${encodeURIComponent(c)}`);
+  const tokenLink = (c) => (c === 'near' ? tokenUrl(c) : `#/t/${encodeURIComponent(c)}`);
   const ACCOUNT_RE = /^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/;
   const isAccount = (s) => typeof s === 'string' && s.length >= 2 && s.length <= 64 && ACCOUNT_RE.test(s);
 
@@ -282,7 +297,7 @@
     return `<div class="trade-card">
       ${tokenIcon(t)}
       <div class="t-main">
-        <div class="t-line"><span class="badge ${t.side}">${t.side}</span><a class="t-token" href="${tokenUrl(t.mint)}" target="_blank" rel="noopener">${esc(tokenName(t))}</a></div>
+        <div class="t-line"><span class="badge ${t.side}">${t.side}</span><a class="t-token" href="${tokenLink(t.mint)}">${esc(tokenName(t))}</a></div>
         <div class="t-sub">${amount(t.tokenAmount)} tokens · <a href="${txUrl(t.signature)}" target="_blank" rel="noopener">view tx</a></div>
       </div>
       <div class="t-amt"><b class="num">${amount(t.quoteAmount)} ${esc(t.quoteSymbol)}</b><div class="t-sub num">≈ ${usd(t.valueUsd)}</div></div>
@@ -384,12 +399,12 @@
     }
   }
 
-  function tradeTable(trades, withUser) {
-    return `<table><thead><tr>${withUser ? '<th>Trader</th>' : ''}<th>Side</th><th>Token</th><th class="r">Amount</th><th class="r">Paid / got</th><th class="r">Value</th><th class="r">When</th></tr></thead><tbody>
+  function tradeTable(trades, withUser, withToken = true) {
+    return `<table><thead><tr>${withUser ? '<th>Trader</th>' : ''}<th>Side</th>${withToken ? '<th>Token</th>' : ''}<th class="r">Amount</th><th class="r">Paid / got</th><th class="r">Value</th><th class="r">When</th></tr></thead><tbody>
       ${trades.map((t) => `<tr>
         ${withUser ? `<td><a class="cell-user" href="#/u/${esc(t.wallet)}">${avatar(t.user || { wallet: t.wallet }, 'sm')} ${esc(nameOf(t.user || { wallet: t.wallet }))}</a></td>` : ''}
         <td><span class="badge ${t.side}">${t.side}</span></td>
-        <td><a class="cell-token" href="${tokenUrl(t.mint)}" target="_blank" rel="noopener">${tokenIcon(t, 'sm')} ${esc(tokenName(t))}</a></td>
+        ${withToken ? `<td><a class="cell-token" href="${tokenLink(t.mint)}">${tokenIcon(t, 'sm')} ${esc(tokenName(t))}</a></td>` : ''}
         <td class="r">${amount(t.tokenAmount)}</td>
         <td class="r">${amount(t.quoteAmount)} ${esc(t.quoteSymbol)}</td>
         <td class="r">${usd(t.valueUsd)}</td>
@@ -408,20 +423,47 @@
     }
   }
 
+  async function loadOverview(u, prof) {
+    const box = $('#overview');
+    const enc = encodeURIComponent(u.wallet);
+    const [p, sim] = await Promise.all([api(`/users/${enc}/pnl`).catch(() => null), api(`/users/${enc}/copy-sim?days=30&amount=100`).catch(() => null)]);
+    if (!box || !document.body.contains(box)) return;
+    const tile = (label, value, sub = '', c = '') => `<div class="tile"><div class="label">${label}</div><div class="value ${c}">${value}</div><div class="sub">${sub}</div></div>`;
+    box.innerHTML = `<div class="tiles">
+      ${tile('Total profit', p ? signedUsd(p.totalUsd) : '—', p ? `${signedUsd(p.realizedUsd)} realized` : 'unavailable', p ? cls(p.totalUsd) : '')}
+      ${tile('Win rate', p && p.closedPositions ? p.winRatePct.toFixed(0) + '%' : '—', p ? `${p.wins} of ${p.closedPositions} closed` : '')}
+      ${tile('Volume', p ? compactUsd(p.volumeUsd) : '—', p && p.best ? `best: $${esc(p.best.symbol || '?')}` : '')}
+      ${tile('Copy · 30 days', sim && sim.copiedBuys ? pct(sim.returnPct) : '—', sim && sim.copiedBuys ? `${signedUsd(sim.totalUsd)} on $100/trade` : 'no recent trades', sim ? cls(sim.totalUsd) : '')}
+    </div>`;
+  }
+
   async function pageLeaderboard() {
-    setPage(`${mobileTop()}${pageHead('Leaderboard', 'Top traders by profit on trades recorded here. Updated every 5 minutes.')}
+    setPage(`${mobileTop()}${pageHead('Leaderboard', 'Top NEAR traders by profit on trades recorded here. Updated every 5 minutes.')}
+      <div id="podium"></div>
       <section class="card"><div class="table-wrap" id="board">${spinner}</div></section>`);
     try {
       const { rows } = await api('/leaderboard');
-      $('#board').innerHTML = rows.length ? `<table><thead><tr><th>#</th><th>Trader</th><th class="r">Profit</th><th class="r">Realized</th><th class="r">Win rate</th><th class="r">Volume</th><th>Best</th></tr></thead><tbody>
-        ${rows.map((r, i) => `<tr><td><span class="rank ${i < 3 ? 'r' + (i + 1) : ''}">${i + 1}</span></td>
+      if (state.me) state.copyMap = new Map((await api('/copy').catch(() => ({ copies: [] }))).copies.map((c) => [c.leader.wallet, c.amountUsd]));
+      const top = rows.slice(0, 3);
+      const order = top.length === 3 ? [top[1], top[0], top[2]] : top;
+      $('#podium').innerHTML = top.length ? `<div class="podium">${order.map((r) => {
+        const i = rows.indexOf(r);
+        return `<a class="card podium-card p${i + 1}" href="#/u/${esc(r.user.wallet)}"><span class="rank r${i + 1}">${i + 1}</span>${avatar(r.user, i === 0 ? 'xl' : 'lg')}
+          <b class="podium-name">${esc(nameOf(r.user))}</b><span class="podium-pnl ${cls(r.totalUsd)}">${signedUsd(r.totalUsd)}</span>
+          <span class="handle">${r.closedPositions ? r.winRatePct.toFixed(0) + '% win rate' : `${r.trades} trades`} · ${plural(r.copiers || 0, 'copier')}</span></a>`;
+      }).join('')}</div>` : '';
+      $('#board').innerHTML = rows.length ? `<table><thead><tr><th>#</th><th>Trader</th><th class="r">Profit</th><th class="r">Win rate</th><th class="r">Copy 30d</th><th></th></tr></thead><tbody>
+        ${rows.map((r, i) => {
+          const copying = state.copyMap && state.copyMap.get(r.user.wallet);
+          const mine = state.me && state.me.wallet === r.user.wallet;
+          return `<tr><td><span class="rank ${i < 3 ? 'r' + (i + 1) : ''}">${i + 1}</span></td>
           <td><a class="cell-user" href="#/u/${esc(r.user.wallet)}">${avatar(r.user, 'sm')} ${esc(nameOf(r.user))}</a></td>
           <td class="r ${cls(r.totalUsd)}"><b>${signedUsd(r.totalUsd)}</b>${r.estimate ? '<span class="muted" title="Partly estimated"> *</span>' : ''}</td>
-          <td class="r ${cls(r.realizedUsd)}">${signedUsd(r.realizedUsd)}</td>
           <td class="r">${r.closedPositions ? r.winRatePct.toFixed(0) + '%' : '—'}</td>
-          <td class="r">${compactUsd(r.volumeUsd)}</td>
-          <td>${r.best ? esc('$' + (r.best.symbol || shortAcc(r.best.mint))) : '—'}</td></tr>`).join('')}
-        </tbody></table><p class="foot-note pad" style="margin:0">* Estimate: some trades happened before the account joined.</p>` : empty('trophy', 'No traders yet.');
+          <td class="r ${cls(r.copy30 && r.copy30.totalUsd)}">${r.copy30 && r.copy30.copiedBuys ? pct(r.copy30.returnPct) : '—'}</td>
+          <td class="r">${mine ? '' : `<button class="btn sm ${copying ? '' : 'primary'}" data-action="copy-user" data-wallet="${esc(r.user.wallet)}" data-name="${esc(r.user.name || '')}" data-amount="${copying || ''}">${copying ? 'Copying' : 'Copy'}</button>`}</td></tr>`;
+        }).join('')}
+        </tbody></table><p class="foot-note pad" style="margin:0">* Estimate: some trades happened before the account joined. Copy 30d = return from copying every trade at $100 over the last 30 days, after 1% swap cost each way.</p>` : empty('trophy', 'No traders yet.');
     } catch (err) {
       $('#board').innerHTML = empty('x', esc(err.message));
     }
@@ -460,7 +502,7 @@
         <div class="profile-top">${avatar(u, 'xl')}
           <div class="profile-actions">${prof.isMe
             ? `<a class="btn sm" href="#/settings">${icon('edit', 'sm')} Edit profile</a><button class="btn sm" data-action="sync">${icon('refresh', 'sm')} Refresh trades</button>`
-            : `<button class="btn sm" data-action="tip-user" data-wallet="${esc(u.wallet)}" data-name="${esc(u.name)}">${icon('tip', 'sm')} Tip</button><button class="btn sm ${prof.isFollowing ? '' : 'primary'}" data-action="follow" data-wallet="${esc(u.wallet)}">${prof.isFollowing ? 'Following' : 'Follow'}</button>`}</div>
+            : `<button class="btn sm" data-action="tip-user" data-wallet="${esc(u.wallet)}" data-name="${esc(u.name)}">${icon('tip', 'sm')} Tip</button><button class="btn sm ${prof.copying ? 'copying' : ''}" data-action="copy-user" data-wallet="${esc(u.wallet)}" data-name="${esc(u.name)}" data-amount="${prof.copying ? prof.copying.amountUsd : ''}">${icon('copytrade', 'sm')} ${prof.copying ? `Copying · $${prof.copying.amountUsd}` : 'Copy trades'}</button><button class="btn sm ${prof.isFollowing ? '' : 'primary'}" data-action="follow" data-wallet="${esc(u.wallet)}">${prof.isFollowing ? 'Following' : 'Follow'}</button>`}</div>
         </div>
         <div class="profile-name">${esc(nameOf(u))}</div>
         <div class="handle">@${esc(u.wallet)}</div>
@@ -470,11 +512,13 @@
           ${u.xHandle ? `<a class="chip" href="https://x.com/${esc(u.xHandle)}" target="_blank" rel="noopener">𝕏 @${esc(u.xHandle)}</a>` : ''}
         </div>
         ${u.bio ? `<p class="bio">${richText(u.bio)}</p>` : ''}
-        <div class="stat-row"><span><b>${prof.followers}</b> followers</span><span><b>${prof.following}</b> following</span><span><b>${prof.trades}</b> trades</span><span><b>${amount(prof.tipsReceivedNear)} Ⓝ</b> tips</span><span>Joined ${new Date(u.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</span></div>
+        <div class="stat-row"><span><b>${prof.followers}</b> ${prof.followers === 1 ? 'follower' : 'followers'}</span><span><b>${prof.following}</b> following</span><span><b>${prof.trades}</b> trades</span><span><b>${amount(prof.tipsReceivedNear)} Ⓝ</b> tips</span><span><b>${prof.copiers}</b> ${prof.copiers === 1 ? 'copier' : 'copiers'}</span><span>Joined ${new Date(u.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</span></div>
       </div>
+      <div class="overview" id="overview"><div class="tiles">${['Total profit', 'Win rate', 'Volume', 'Copy · 30 days'].map((l) => `<div class="tile"><div class="label">${l}</div><div class="value muted">…</div></div>`).join('')}</div></div>
       <div class="profile-tabs"><div class="tabs">${tabs.map(([k, l]) => `<a href="#/u/${esc(u.wallet)}/${k}" class="${k === tab ? 'active' : ''}">${l}</a>`).join('')}</div></div>
       <div id="ptab" class="feed">${spinner}</div>
     </section>`);
+    loadOverview(u, prof);
     const el = $('#ptab');
     const enc = encodeURIComponent(u.wallet);
     try {
@@ -483,8 +527,8 @@
         const h = await api(`/users/${enc}/holdings`);
         el.innerHTML = `<div class="pad"><div class="tiles"><div class="tile"><div class="label">Account value</div><div class="value">${usd(h.totalUsd)}</div></div><div class="tile"><div class="label">Tokens held</div><div class="value">${h.tokens.length}</div></div></div>
           <div class="table-wrap"><table><thead><tr><th>Token</th><th class="r">Amount</th><th class="r">Price</th><th class="r">Value</th></tr></thead><tbody>
-          ${h.tokens.map((t) => `<tr><td><a class="cell-token" href="${tokenUrl(t.mint)}" target="_blank" rel="noopener">${tokenIcon(t, 'sm')} ${esc(t.mint === 'near' ? 'NEAR' : tokenName(t))}</a></td>
-            <td class="r">${amount(t.amount)}</td><td class="r">${t.priceUsd ? (t.priceUsd < 0.01 ? '$' + t.priceUsd.toPrecision(3) : usd(t.priceUsd)) : '—'}</td><td class="r"><b>${usd(t.valueUsd)}</b></td></tr>`).join('')}
+          ${h.tokens.map((t) => `<tr><td><a class="cell-token" href="${tokenLink(t.mint)}">${tokenIcon(t, 'sm')} ${esc(t.mint === 'near' ? 'NEAR' : tokenName(t))}</a></td>
+            <td class="r">${amount(t.amount)}</td><td class="r">${fmtPrice(t.priceUsd)}</td><td class="r"><b>${usd(t.valueUsd)}</b></td></tr>`).join('')}
           </tbody></table></div>${h.unpriced ? `<p class="foot-note">${h.unpriced} token(s) have no market price and are not counted.</p>` : ''}
           <p class="foot-note">Live from the NEAR blockchain · updated ${ago(h.updatedAt)} ago</p></div>`;
       }
@@ -500,7 +544,7 @@
           </div>
           ${p.estimate ? '<div class="notice">Estimate: some tokens were bought before this account joined (cost unknown), or prices are temporarily unavailable.</div>' : ''}
           <div class="table-wrap"><table><thead><tr><th>Token</th><th class="r">Bought</th><th class="r">Sold</th><th class="r">Holding</th><th class="r">Realized</th><th class="r">Unrealized</th><th class="r">Total</th></tr></thead><tbody>
-          ${p.tokens.map((t) => `<tr><td><a class="cell-token" href="${tokenUrl(t.mint)}" target="_blank" rel="noopener">${tokenIcon(t, 'sm')} ${esc(tokenName(t))}</a>${t.closed ? ' <span class="muted" style="font-size:12px">closed</span>' : ''}</td>
+          ${p.tokens.map((t) => `<tr><td><a class="cell-token" href="${tokenLink(t.mint)}">${tokenIcon(t, 'sm')} ${esc(tokenName(t))}</a>${t.closed ? ' <span class="muted" style="font-size:12px">closed</span>' : ''}</td>
             <td class="r">${usd(t.boughtUsd)}</td><td class="r">${usd(t.soldUsd)}</td><td class="r">${t.closed ? '—' : usd(t.valueNowUsd)}</td>
             <td class="r ${cls(t.realizedUsd)}">${signedUsd(t.realizedUsd)}</td><td class="r ${cls(t.unrealizedUsd)}">${signedUsd(t.unrealizedUsd)}</td><td class="r ${cls(t.totalUsd)}"><b>${signedUsd(t.totalUsd)}</b></td></tr>`).join('') || `<tr><td colspan="7">${empty('chart', 'No trades recorded yet.')}</td></tr>`}
           </tbody></table></div>
@@ -556,6 +600,7 @@
       ['Sign in', 'NEAR wallet', 'NEAR wallet', 'Farcaster account', 'Lens profile'],
       ['Profit and holdings on profile', '✓ from chain', '—', '—', '—'],
       ['Trades auto-posted to feed', '✓', '—', '—', '—'],
+      ['Copy trading', '✓ you approve each swap', '—', '—', '—'],
       ['Tips in native token', '✓ NEAR', 'via apps', 'via apps', 'via apps'],
       ['Posts stored', 'Server', 'On-chain (SocialDB)', 'Hubs (off-chain network)', 'Lens Chain + storage network'],
     ];
@@ -565,6 +610,7 @@
       ['Can the site move my funds?', 'No. The site never gets your keys. Signing in signs a text message. Tips only happen when you approve them in your own wallet.'],
       ['Which trades are counted?', 'Swaps where you trade NEAR, USDC or USDT for a token, or the reverse, on any NEAR DEX. Plain transfers and airdrops are not trades.'],
       ['Can I hide my trades?', 'You can stop new trades being posted to the feed in your profile settings. Your holdings stay public on the blockchain either way.'],
+      ['How does copy trading work?', 'Pick a trader and an amount per trade. When they buy or sell, you get a signal with a ready-made swap on a NEAR DEX. You check it and approve it in your own wallet. The site never trades for you and never holds your funds.'],
       ['Which wallets work?', 'Meteor, HOT, Intear, HERE and MyNearWallet, on desktop and mobile.'],
     ];
     setPage(`${mobileTop()}${pageHead(`About ${app}`, 'The social network where every profile is backed by the NEAR blockchain.')}
@@ -590,11 +636,179 @@
       </div>`);
   }
 
+  // ------------------------------------------------------------------ copy trading
+  const pct = (v) => (v == null || !isFinite(v) ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(1)}%`);
+
+  function copyDialog(leader, current = 0) {
+    if (!requireLogin()) return;
+    if (leader.wallet === state.me.wallet) return toast('You cannot copy yourself');
+    const d = openModal(current ? `Edit copy of ${nameOf(leader)}` : `Copy ${nameOf(leader)}`, `
+      <p class="muted" style="margin-top:0">When <b>${esc(leader.wallet)}</b> buys or sells, you get a signal with a ready-made swap. You approve every trade in your own wallet; nothing runs without you.</p>
+      <div class="presets">${[25, 50, 100, 250].map((v) => `<button class="btn sm ${v === (current || 100) ? 'on' : ''}" data-amt="${v}">$${v}</button>`).join('')}</div>
+      <label class="field"><span>Amount per trade (USD)</span><input type="number" id="copyAmount" min="1" step="1" value="${current || 100}" inputmode="decimal"></label>
+      <div class="sim-box" id="copySim">${spinner}</div>
+      <button class="btn primary block lg" id="copySave">${icon('copytrade')} ${current ? 'Save' : 'Start copying'}</button>
+      ${current ? `<button class="btn ghost block" style="margin-top:8px" data-action="stop-copy" data-wallet="${esc(leader.wallet)}" data-name="${esc(leader.name || '')}">Stop copying</button>` : ''}`);
+    let timer;
+    const preview = () => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const amt = Number($('#copyAmount').value) || 100;
+        try {
+          const sim = await api(`/users/${encodeURIComponent(leader.wallet)}/copy-sim?days=30&amount=${amt}`);
+          $('#copySim').innerHTML = sim.copiedBuys
+            ? `<div class="sim-label">If you had copied for the last 30 days</div>
+               <div class="sim-row"><span>${sim.copiedBuys} buys copied · ${usd(sim.investedUsd, 0)} in</span><b class="${cls(sim.totalUsd)}">${signedUsd(sim.totalUsd)} (${pct(sim.returnPct)})</b></div>
+               <div class="sim-note">Includes 1% swap cost each way. Past results, not a promise.</div>`
+            : '<div class="sim-label">No trades from this trader in the last 30 days to simulate.</div>';
+        } catch {
+          $('#copySim').innerHTML = '<div class="sim-label">Simulation unavailable right now.</div>';
+        }
+      }, 250);
+    };
+    d.querySelectorAll('[data-amt]').forEach((b) => b.addEventListener('click', () => {
+      $('#copyAmount').value = b.dataset.amt;
+      d.querySelectorAll('[data-amt]').forEach((x) => x.classList.toggle('on', x === b));
+      preview();
+    }));
+    $('#copyAmount').addEventListener('input', preview);
+    preview();
+    $('#copySave').addEventListener('click', async () => {
+      try {
+        const amountUsd = Number($('#copyAmount').value);
+        await api(`/copy/${encodeURIComponent(leader.wallet)}`, { method: 'PUT', body: { amountUsd } });
+        d.close();
+        toast(`Copying ${nameOf(leader)} with $${amountUsd} per trade`);
+        route();
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+  }
+
+  function signalCard(sg, nearUsd) {
+    const near = nearUsd && sg.yourAmountUsd ? sg.yourAmountUsd / nearUsd : null;
+    const fresh = Date.now() - sg.time < 15 * 60000;
+    return `<article class="signal">
+      <a href="#/u/${esc(sg.wallet)}">${avatar(sg.user || { wallet: sg.wallet })}</a>
+      <div class="signal-body">
+        <div class="post-head"><a class="name" href="#/u/${esc(sg.wallet)}">${esc(nameOf(sg.user || { wallet: sg.wallet }))}</a>
+          <span class="handle">${sg.side === 'buy' ? 'bought' : 'sold'}</span>
+          <a class="name" href="${tokenLink(sg.mint)}">${esc(tokenName(sg))}</a>
+          <span class="handle">· ${ago(sg.time)}</span>${fresh ? '<span class="live-dot" title="Fresh signal"></span>' : ''}</div>
+        <div class="signal-meta"><span>Them: <b>${amount(sg.quoteAmount)} ${esc(sg.quoteSymbol)}</b> (${usd(sg.valueUsd)})</span>
+          ${sg.side === 'buy' ? `<span>You: <b>${usd(sg.yourAmountUsd, 0)}</b>${near ? ` ≈ ${amount(near)} NEAR` : ''}</span>` : '<span>You: sell the same share of your position</span>'}</div>
+      </div>
+      <div class="signal-actions">
+        <a class="btn sm ${sg.side === 'buy' ? 'primary' : ''}" href="${esc(sg.swapUrl)}" target="_blank" rel="noopener">${icon('bolt', 'sm')} ${sg.side === 'buy' ? 'Copy buy' : 'Copy sell'}</a>
+        <a class="btn sm ghost" href="${txUrl(sg.signature)}" target="_blank" rel="noopener" aria-label="View transaction">${icon('external', 'sm')}</a>
+      </div>
+    </article>`;
+  }
+
+  function discoverCard(r) {
+    const c = r.copy30 || {};
+    const copying = state.copyMap && state.copyMap.get(r.user.wallet);
+    return `<div class="trader-card">
+      <a class="trader-top" href="#/u/${esc(r.user.wallet)}">${avatar(r.user)}<span class="who"><b>${esc(nameOf(r.user))}</b><span class="handle">@${esc(shortAcc(r.user.wallet))}</span></span></a>
+      <div class="trader-stats">
+        <div><span>Profit</span><b class="${cls(r.totalUsd)}">${signedUsd(r.totalUsd)}</b></div>
+        <div><span>Win rate</span><b>${r.closedPositions ? r.winRatePct.toFixed(0) + '%' : '—'}</b></div>
+        <div><span>Copiers</span><b>${r.copiers || 0}</b></div>
+      </div>
+      <div class="trader-sim"><span>$100/trade, last 30 days</span><b class="${cls(c.totalUsd)}">${c.copiedBuys ? `${signedUsd(c.totalUsd)} (${pct(c.returnPct)})` : 'no trades'}</b></div>
+      ${state.me && state.me.wallet === r.user.wallet ? '<span class="btn sm block" style="pointer-events:none;opacity:.6">This is you</span>'
+        : `<button class="btn sm block ${copying ? '' : 'primary'}" data-action="copy-user" data-wallet="${esc(r.user.wallet)}" data-name="${esc(r.user.name || '')}" data-amount="${copying || ''}">${icon('copytrade', 'sm')} ${copying ? `Copying · $${copying}` : 'Copy'}</button>`}
+    </div>`;
+  }
+
+  async function pageCopy(tab = 'signals') {
+    const tabs = [['signals', 'Signals'], ['copying', 'Copying'], ['discover', 'Find traders']];
+    setPage(`${mobileTop()}${pageHead('Copy trades', 'Follow the best NEAR traders trade by trade. You keep your keys and approve every swap.')}
+      <section class="card copy-hero">
+        <div class="copy-points">
+          <div>${icon('copytrade')}<b>Pick traders</b><span>Choose who to copy and your size per trade.</span></div>
+          <div>${icon('bolt')}<b>Get signals</b><span>Their buys and sells land here as they happen.</span></div>
+          <div>${icon('shield')}<b>You approve</b><span>One tap opens the swap. Nothing trades without you.</span></div>
+        </div>
+      </section>
+      <div class="tabs">${tabs.map(([k, l]) => `<a href="#/copy/${k}" class="${k === tab ? 'active' : ''}">${l}</a>`).join('')}</div>
+      <div id="copyBody">${spinner}</div>`);
+    const el = $('#copyBody');
+    try {
+      let mine = { copies: [], signals: [], nearUsd: null };
+      if (state.me) mine = await api('/copy');
+      state.copyMap = new Map(mine.copies.map((c) => [c.leader.wallet, c.amountUsd]));
+      if (tab === 'signals') {
+        if (!state.me) el.innerHTML = `<section class="card">${empty('copytrade', 'Connect your wallet and copy a trader to get signals.')}<div style="text-align:center;padding-bottom:20px"><button class="btn primary" data-action="signin">${icon('wallet')} Connect NEAR wallet</button></div></section>`;
+        else if (!mine.copies.length) el.innerHTML = `<section class="card">${empty('copytrade', 'You are not copying anyone yet.')}<div style="text-align:center;padding-bottom:20px"><a class="btn primary" href="#/copy/discover">Find traders to copy</a></div></section>`;
+        else el.innerHTML = `<section class="card feed">${mine.signals.map((sg) => signalCard(sg, mine.nearUsd)).join('') || empty('bolt', 'No signals yet. They appear when the traders you copy make a trade.')}</section>
+          <p class="foot-note">“Copy” opens the swap on a NEAR DEX in a new tab, ready for you to check and approve. Always check the token before you swap.</p>`;
+      }
+      if (tab === 'copying') {
+        if (!state.me) el.innerHTML = `<section class="card">${empty('copytrade', 'Connect your wallet to copy traders.')}</section>`;
+        else el.innerHTML = mine.copies.length ? `<div class="copy-grid">${mine.copies.map((c) => `<div class="card copy-card">
+            <div class="copy-card-top"><a class="trader-top" href="#/u/${esc(c.leader.wallet)}">${avatar(c.leader)}<span class="who"><b>${esc(nameOf(c.leader))}</b><span class="handle">since ${new Date(c.since).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · $${c.amountUsd}/trade</span></span></a></div>
+            <div class="copy-pnl ${cls(c.totalUsd)}">${signedUsd(c.totalUsd)}<small>${pct(c.returnPct)}</small></div>
+            <div class="trader-stats"><div><span>Buys copied</span><b>${c.copiedBuys}</b></div><div><span>Invested</span><b>${usd(c.investedUsd, 0)}</b></div><div><span>Win rate</span><b>${c.closedPositions ? c.winRatePct.toFixed(0) + '%' : '—'}</b></div></div>
+            <div style="display:flex;gap:8px"><button class="btn sm" data-action="copy-user" data-wallet="${esc(c.leader.wallet)}" data-name="${esc(c.leader.name || '')}" data-amount="${c.amountUsd}">${icon('edit', 'sm')} Edit</button><button class="btn sm ghost" data-action="stop-copy" data-wallet="${esc(c.leader.wallet)}" data-name="${esc(c.leader.name || '')}">Stop</button></div>
+          </div>`).join('')}</div><p class="foot-note">Results show what copying every trade at your size would have made since you started, including ${mine.costPct}% swap cost each way.</p>`
+          : `<section class="card">${empty('copytrade', 'You are not copying anyone yet.')}<div style="text-align:center;padding-bottom:20px"><a class="btn primary" href="#/copy/discover">Find traders to copy</a></div></section>`;
+      }
+      if (tab === 'discover') {
+        const { rows } = await api('/leaderboard');
+        el.innerHTML = rows.length ? `<div class="copy-grid">${rows.slice(0, 30).map(discoverCard).join('')}</div>` : `<section class="card">${empty('trophy', 'No traders yet.')}</section>`;
+      }
+    } catch (err) {
+      el.innerHTML = `<section class="card">${empty('x', esc(err.message))}</section>`;
+    }
+  }
+
+  // ------------------------------------------------------------------ token page
+  async function pageToken(contract) {
+    setPage(`${mobileTop()}${spinner}`);
+    let d;
+    try {
+      d = await api(`/tokens/${encodeURIComponent(contract)}`);
+    } catch (err) {
+      setPage(`${mobileTop()}<section class="card">${empty('x', esc(err.message))}</section>`);
+      return;
+    }
+    const t = d.token;
+    const st = d.stats;
+    setPage(`${mobileTop()}<section class="card token-head">
+        <div class="token-title">${tokenIcon(t, 'lg')}<div><h1>${esc(t.symbol ? '$' + t.symbol : shortAcc(t.mint))}</h1><div class="handle">${esc(t.name || '')} · <span class="mono">${esc(shortAcc(t.mint))}</span></div></div>
+          <div class="token-price"><b>${fmtPrice(t.priceUsd)}</b><span class="handle">price</span></div></div>
+        <div class="chips">
+          <a class="btn sm primary" href="${esc(d.swap.buyUrl)}" target="_blank" rel="noopener">${icon('bolt', 'sm')} Buy</a>
+          <a class="btn sm" href="${esc(d.swap.sellUrl)}" target="_blank" rel="noopener">Sell</a>
+          <a class="chip" href="${tokenUrl(t.mint)}" target="_blank" rel="noopener">${icon('link', 'sm')} NearBlocks</a>
+          <span class="chip" data-action="copy" data-text="${esc(t.mint)}">${icon('copy', 'sm')} Contract</span>
+        </div>
+      </section>
+      <div class="tiles" style="margin-top:14px">
+        <div class="tile"><div class="label">Members trading</div><div class="value">${st.members}</div><div class="sub">${st.holders} still holding</div></div>
+        <div class="tile"><div class="label">24h buys / sells</div><div class="value"><span class="up">${st.buys24h}</span> / <span class="down">${st.sells24h}</span></div></div>
+        <div class="tile"><div class="label">24h member volume</div><div class="value">${compactUsd(st.volume24hUsd)}</div></div>
+        <div class="tile"><div class="label">Member profit</div><div class="value ${cls(st.memberProfitUsd)}">${signedUsd(st.memberProfitUsd)}</div></div>
+      </div>
+      <section class="card"><div class="pad" style="padding-bottom:0"><h2 class="section-title">Members on this token</h2></div>
+        <div class="table-wrap">${d.members.length ? `<table><thead><tr><th>Trader</th><th class="r">Avg entry</th><th class="r">Bought</th><th class="r">Profit</th><th></th></tr></thead><tbody>
+        ${d.members.map((m) => `<tr><td><a class="cell-user" href="#/u/${esc(m.user.wallet)}">${avatar(m.user, 'sm')} ${esc(nameOf(m.user))}</a>${m.holding > 0 ? ' <span class="badge buy">holding</span>' : ''}</td>
+          <td class="r">${fmtPrice(m.avgEntryUsd)}</td><td class="r">${usd(m.boughtUsd)}</td>
+          <td class="r ${cls(m.totalUsd)}"><b>${signedUsd(m.totalUsd)}</b></td>
+          <td class="r">${state.me && state.me.wallet === m.user.wallet ? '' : `<button class="btn sm" data-action="copy-user" data-wallet="${esc(m.user.wallet)}" data-name="${esc(m.user.name || '')}">Copy</button>`}</td></tr>`).join('')}
+        </tbody></table>` : empty('users', 'No member has traded this token yet.')}</div></section>
+      <section class="card"><div class="pad" style="padding-bottom:0"><h2 class="section-title">Recent member trades</h2></div>
+        <div class="table-wrap">${d.trades.length ? tradeTable(d.trades, true, false) : empty('trades', 'No trades yet.')}</div></section>`);
+  }
+
   // ------------------------------------------------------------------ chrome
   function renderChrome() {
     const nav = [
       ['home', '#/', 'Home'],
       ['trades', '#/trades', 'Trades'],
+      ['copytrade', '#/copy', 'Copy', 'copy'],
       ['trophy', '#/leaderboard', 'Leaderboard', 'leaderboard'],
       ['users', '#/people', 'People', 'people'],
       ['user', state.me ? `#/u/${state.me.wallet}` : '#/settings', 'Profile', 'me'],
@@ -610,7 +824,7 @@
 
   function markNav() {
     const [page = 'home', arg] = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
-    const active = page === 'u' && state.me && arg === state.me.wallet ? 'me' : page === 'following' || page === 'home' ? 'home' : page === 'settings' ? 'me' : page;
+    const active = page === 'u' && state.me && arg === state.me.wallet ? 'me' : page === 'following' || page === 'home' ? 'home' : page === 'settings' ? 'me' : page === 't' ? 'trades' : page;
     document.querySelectorAll('#nav a[data-route]').forEach((a) => a.classList.toggle('active', a.dataset.route === active));
   }
 
@@ -639,6 +853,8 @@
     if (page === 'people') return pagePeople(arg || '');
     if (page === 'about' || page === 'roadmap') return pageAbout();
     if (page === 'settings') return pageSettings();
+    if (page === 'copy') return pageCopy(arg || 'signals');
+    if (page === 't' && arg) return pageToken(arg);
     if (page === 'u' && arg) return pageProfile(arg, sub || 'posts');
     if (page === 'p' && arg) return pagePost(arg);
     setPage(`<section class="card">${empty('map', 'Page not found. <a href="#/">Go home</a>')}</section>`);
@@ -663,6 +879,7 @@
         await navigator.clipboard.writeText(el.dataset.text).catch(() => {});
         return toast('Account copied');
       }
+      if (a === 'copy-user') return copyDialog({ wallet: el.dataset.wallet, name: el.dataset.name }, Number(el.dataset.amount) || 0);
       if (a === 'tip' || a === 'tip-user') return tipDialog({ wallet: el.dataset.wallet, name: el.dataset.name }, a === 'tip' ? Number(id) : null);
       if (!requireLogin()) return;
       if (a === 'like') {
@@ -685,6 +902,12 @@
         if (!confirm('Delete this post?')) return;
         await api(`/posts/${id}`, { method: 'DELETE' });
         toast('Deleted');
+        route();
+      }
+      if (a === 'stop-copy') {
+        if (!confirm(`Stop copying ${el.dataset.name || el.dataset.wallet}?`)) return;
+        await api(`/copy/${encodeURIComponent(el.dataset.wallet)}`, { method: 'DELETE' });
+        toast('Stopped copying');
         route();
       }
       if (a === 'follow') {

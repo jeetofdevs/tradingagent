@@ -3,6 +3,7 @@
 const express = require('express');
 const { isAccountId } = require('./auth');
 const { findNearTransfer } = require('./near');
+const { simulateCopy } = require('./copy');
 
 const COOKIE = 'sid';
 const MAX_POST = 500;
@@ -312,6 +313,8 @@ function createSocialRouter({ db, auth, near, portfolio, syncer, cfg, now = () =
       trades: one('SELECT COUNT(*) n FROM trades WHERE wallet = ?', w),
       tipsReceivedNear: one('SELECT COALESCE(SUM(amount), 0) n FROM tips WHERE to_wallet = ?', w),
       isFollowing: req.wallet ? Boolean(db.prepare('SELECT 1 FROM follows WHERE follower = ? AND followee = ?').get(req.wallet, w)) : false,
+      copying: req.wallet ? (db.prepare('SELECT amount_usd amountUsd, created_at since FROM copies WHERE follower = ? AND leader = ?').get(req.wallet, w) || null) : null,
+      copiers: one('SELECT COUNT(*) n FROM copies WHERE leader = ?', w),
       lastSyncAt: u.last_sync_at,
       isMe: req.wallet === w,
     });
@@ -391,7 +394,8 @@ function createSocialRouter({ db, auth, near, portfolio, syncer, cfg, now = () =
       for (const w of wallets) {
         try {
           const p = await portfolio.pnl(w);
-          rows.push({ user: publicUser(getUser.get(w)), totalUsd: p.totalUsd, realizedUsd: p.realizedUsd, winRatePct: p.winRatePct, closedPositions: p.closedPositions, volumeUsd: p.volumeUsd, best: p.best, estimate: p.estimate });
+          const copy30 = await copySim(w, { amountUsd: 100, since: now() - 30 * DAY });
+          rows.push({ user: publicUser(getUser.get(w)), totalUsd: p.totalUsd, realizedUsd: p.realizedUsd, winRatePct: p.winRatePct, closedPositions: p.closedPositions, volumeUsd: p.volumeUsd, best: p.best, estimate: p.estimate, trades: tradesOf.all(w).length, copiers: db.prepare('SELECT COUNT(*) n FROM copies WHERE leader = ?').get(w).n, copy30: { totalUsd: copy30.totalUsd, returnPct: copy30.returnPct, copiedBuys: copy30.copiedBuys } });
         } catch {
           // skip wallets whose prices fail
         }
@@ -400,6 +404,155 @@ function createSocialRouter({ db, auth, near, portfolio, syncer, cfg, now = () =
       board = { t: now(), rows: rows.slice(0, 100) };
     }
     res.json({ updatedAt: board.t, rows: board.rows });
+  }));
+
+  // ---- copy trading ------------------------------------------------------------
+
+  const DAY = 24 * 60 * 60000;
+  const tradesOf = db.prepare('SELECT * FROM trades WHERE wallet = ? ORDER BY block_time ASC');
+
+  async function priceMap(mints) {
+    if (!mints.length) return new Map();
+    try {
+      const snaps = await portfolio.prices(mints);
+      return new Map([...snaps].map(([m, sn]) => [m, sn.priceUsd]));
+    } catch {
+      return new Map();
+    }
+  }
+
+  async function copySim(leader, { amountUsd, since }) {
+    const trades = tradesOf.all(leader);
+    const mints = [...new Set(trades.filter((t) => t.block_time >= since).map((t) => t.mint))];
+    return simulateCopy(trades, { amountUsd, since, costPct: copyCost }, await priceMap(mints));
+  }
+
+  const swapTemplate = cfg.swapUrl || 'https://app.ref.finance/#{from}|{to}';
+  const copyCost = cfg.copyCostPct ?? 1;
+  const swapLink = (from, to) => swapTemplate.replace('{from}', encodeURIComponent(from)).replace('{to}', encodeURIComponent(to));
+
+  function signalOut(t) {
+    return {
+      ...tradeOut(t),
+      user: publicUser(getUser.get(t.wallet)),
+      swapUrl: t.side === 'buy' ? swapLink('near', t.mint) : swapLink(t.mint, 'near'),
+    };
+  }
+
+  // "What if I had copied this trader?" Defaults: last 30 days, $100 per buy.
+  router.get('/users/:wallet/copy-sim', requireWalletParam, wrap(async (req, res) => {
+    if (!getUser.get(req.params.wallet)) return fail(res, 404, 'This account has not joined yet');
+    const days = Math.min(365, Math.max(1, Number(req.query.days) || 30));
+    const amountUsd = Math.min(100000, Math.max(1, Number(req.query.amount) || 100));
+    const sim = await copySim(req.params.wallet, { amountUsd, since: now() - days * DAY });
+    for (const t of sim.tokens) {
+      const meta = db.prepare('SELECT symbol, icon FROM tokens WHERE mint = ?').get(t.mint);
+      t.symbol = meta?.symbol || '';
+      t.icon = meta?.icon || null;
+    }
+    res.json({ days, ...sim });
+  }));
+
+  // Your copy list, how each copy is doing, and the latest signals.
+  router.get('/copy', requireUser, wrap(async (req, res) => {
+    const rows = db.prepare('SELECT * FROM copies WHERE follower = ? ORDER BY created_at DESC').all(req.wallet);
+    const copies = [];
+    for (const c of rows) {
+      const sim = await copySim(c.leader, { amountUsd: c.amount_usd, since: c.created_at });
+      copies.push({ leader: publicUser(getUser.get(c.leader)), amountUsd: c.amount_usd, since: c.created_at, ...sim, tokens: undefined });
+    }
+    let signals = [];
+    if (rows.length) {
+      const clauses = rows.map(() => '(t.wallet = ? AND t.block_time >= ?)').join(' OR ');
+      const args = rows.flatMap((c) => [c.leader, c.created_at]);
+      signals = db.prepare(`SELECT t.*, k.symbol, k.name, k.icon FROM trades t LEFT JOIN tokens k ON k.mint = t.mint
+        WHERE ${clauses} ORDER BY t.block_time DESC LIMIT 60`).all(...args).map(signalOut);
+      const amountBy = new Map(rows.map((c) => [c.leader, c.amount_usd]));
+      for (const sg of signals) sg.yourAmountUsd = amountBy.get(sg.wallet);
+    }
+    let nearUsd = null;
+    try {
+      nearUsd = await portfolio.nearPriceUsd();
+    } catch {
+      nearUsd = null;
+    }
+    res.json({ copies, signals, nearUsd, costPct: copyCost });
+  }));
+
+  router.put('/copy/:wallet', requireWalletParam, requireUser, (req, res) => {
+    const leader = req.params.wallet;
+    if (leader === req.wallet) return fail(res, 400, 'You cannot copy yourself');
+    if (!getUser.get(leader)) return fail(res, 404, 'This account has not joined yet');
+    const amountUsd = Number(req.body?.amountUsd);
+    if (!(amountUsd >= 1 && amountUsd <= 100000)) return fail(res, 400, 'Amount per trade must be between $1 and $100,000');
+    const count = db.prepare('SELECT COUNT(*) n FROM copies WHERE follower = ?').get(req.wallet).n;
+    const exists = db.prepare('SELECT 1 FROM copies WHERE follower = ? AND leader = ?').get(req.wallet, leader);
+    if (!exists && count >= 20) return fail(res, 400, 'You can copy up to 20 traders');
+    db.prepare(`INSERT INTO copies (follower, leader, amount_usd, created_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(follower, leader) DO UPDATE SET amount_usd = excluded.amount_usd`).run(req.wallet, leader, amountUsd, now());
+    // Copying implies following, so their posts show up too.
+    db.prepare('INSERT OR IGNORE INTO follows (follower, followee, created_at) VALUES (?, ?, ?)').run(req.wallet, leader, now());
+    res.json({ copying: true, amountUsd });
+  });
+
+  router.delete('/copy/:wallet', requireWalletParam, requireUser, (req, res) => {
+    db.prepare('DELETE FROM copies WHERE follower = ? AND leader = ?').run(req.wallet, req.params.wallet);
+    res.json({ copying: false });
+  });
+
+  // ---- tokens ------------------------------------------------------------------
+
+  router.get('/tokens/:contract', wrap(async (req, res) => {
+    const contract = req.params.contract;
+    if (!isAccountId(contract)) return fail(res, 400, 'Not a valid token contract');
+    let meta = db.prepare('SELECT * FROM tokens WHERE mint = ?').get(contract);
+    if (!meta) {
+      try {
+        meta = await portfolio.tokenMeta(contract);
+      } catch {
+        return fail(res, 404, 'Token not found');
+      }
+    }
+    const price = (await priceMap([contract])).get(contract) || null;
+    const trades = db.prepare(`SELECT t.*, k.symbol, k.name, k.icon FROM trades t LEFT JOIN tokens k ON k.mint = t.mint
+      WHERE t.mint = ? ORDER BY t.block_time DESC LIMIT 200`).all(contract);
+    // Per member: net position and profit on this token (average cost).
+    const byMember = new Map();
+    for (const t of [...trades].reverse()) {
+      if (!byMember.has(t.wallet)) byMember.set(t.wallet, { qty: 0, cost: 0, realized: 0, bought: 0, sold: 0, buys: 0, sells: 0, last: 0 });
+      const m = byMember.get(t.wallet);
+      m.last = t.block_time;
+      if (t.side === 'buy') {
+        m.qty += t.token_amount; m.cost += t.value_usd || 0; m.bought += t.value_usd || 0; m.buys += 1;
+      } else {
+        m.sells += 1; m.sold += t.value_usd || 0;
+        const q = Math.min(t.token_amount, m.qty);
+        if (q > 0) {
+          const avg = m.cost / m.qty;
+          m.realized += (t.value_usd || 0) * (q / t.token_amount) - avg * q;
+          m.cost -= avg * q; m.qty -= q;
+        }
+      }
+    }
+    const members = [...byMember].map(([w, m]) => {
+      const unrealized = price && m.qty > 0 ? m.qty * price - m.cost : 0;
+      return { user: publicUser(getUser.get(w)), holding: m.qty, avgEntryUsd: m.qty > 0 ? m.cost / m.qty : null, boughtUsd: m.bought, soldUsd: m.sold, realizedUsd: m.realized, unrealizedUsd: unrealized, totalUsd: m.realized + unrealized, buys: m.buys, sells: m.sells, lastTradeAt: m.last };
+    }).sort((a, b) => b.totalUsd - a.totalUsd);
+    const day = trades.filter((t) => t.block_time > now() - DAY);
+    res.json({
+      token: { mint: contract, symbol: meta.symbol || '', name: meta.name || '', icon: meta.icon || null, priceUsd: price },
+      stats: {
+        members: members.length,
+        holders: members.filter((m) => m.holding > 0).length,
+        buys24h: day.filter((t) => t.side === 'buy').length,
+        sells24h: day.filter((t) => t.side === 'sell').length,
+        volume24hUsd: day.reduce((a, t) => a + (t.value_usd || 0), 0),
+        memberProfitUsd: members.reduce((a, m) => a + m.totalUsd, 0),
+      },
+      members,
+      trades: trades.slice(0, 50).map(tradeOut).map((t) => ({ ...t, user: publicUser(getUser.get(t.wallet)) })),
+      swap: { buyUrl: swapLink('near', contract), sellUrl: swapLink(contract, 'near') },
+    });
   }));
 
   // ---- tips ------------------------------------------------------------------

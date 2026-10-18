@@ -92,6 +92,15 @@ CREATE TABLE IF NOT EXISTS trades (
 CREATE INDEX IF NOT EXISTS trades_wallet ON trades(wallet, block_time DESC);
 CREATE INDEX IF NOT EXISTS trades_time ON trades(block_time DESC);
 
+CREATE TABLE IF NOT EXISTS copies (
+  follower TEXT NOT NULL REFERENCES users(wallet),
+  leader TEXT NOT NULL REFERENCES users(wallet),
+  amount_usd REAL NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (follower, leader)
+);
+CREATE INDEX IF NOT EXISTS copies_leader ON copies(leader);
+
 CREATE TABLE IF NOT EXISTS tokens (
   mint TEXT PRIMARY KEY,
   symbol TEXT NOT NULL DEFAULT '',

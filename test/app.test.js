@@ -306,3 +306,83 @@ test('api: tips are checked on-chain before they count', async () => {
     await app.close();
   }
 });
+
+const { simulateCopy } = require('../src/copy');
+
+test('copy sim: mirrors buys at your size and sells the same fraction', () => {
+  const T = (side, qty, usd, time, mint = TOKEN) => ({ side, token_amount: qty, value_usd: usd, block_time: time, mint });
+  const trades = [
+    T('buy', 500, 50, 1), // before copying: ignored
+    T('buy', 1000, 100, 10), // leader buys at $0.10
+    T('sell', 500, 150, 20), // leader sells half at $0.30
+    T('sell', 500, 25, 30), // leader sells the rest at $0.05
+  ];
+  const half = simulateCopy(trades.slice(0, 3), { amountUsd: 200, since: 5, costPct: 0 });
+  assert.equal(half.copiedBuys, 1);
+  assert.equal(half.investedUsd, 200);
+  // Follower bought 2000 tokens; leader sold half -> follower sells 1000 @ $0.30 = $300 for $100 of cost.
+  assert.ok(Math.abs(half.realizedUsd - 200) < 1e-9, String(half.realizedUsd));
+  // Then the leader sells the rest -> follower sells 1000 @ $0.05 = $50 for the last $100 of cost.
+  const full = simulateCopy(trades, { amountUsd: 200, since: 5, costPct: 0 }, new Map());
+  assert.equal(full.closedPositions, 1);
+  assert.ok(Math.abs(full.totalUsd - (200 - 50)) < 1e-9, `total ${full.totalUsd}`);
+  assert.ok(Math.abs(full.returnPct - 75) < 1e-9);
+  // Swap costs reduce the result.
+  assert.ok(simulateCopy(trades, { amountUsd: 200, since: 5, costPct: 1 }).totalUsd < full.totalUsd);
+});
+
+test('copy sim: open positions are valued at the current price', () => {
+  const sim = simulateCopy([{ side: 'buy', token_amount: 100, value_usd: 10, block_time: 1, mint: TOKEN }], { amountUsd: 50, costPct: 0 }, new Map([[TOKEN, 0.3]]));
+  assert.ok(Math.abs(sim.unrealizedUsd - (500 * 0.3 - 50)) < 1e-9);
+  assert.equal(sim.closedPositions, 0);
+});
+
+test('api: copy a trader, see signals with swap links, stop copying; token page', async () => {
+  const alice = newAccount('alice.near');
+  const bob = newAccount('bob.near');
+  const w = world(alice, bob);
+  const app = await startApp(fakeNear(w));
+  try {
+    const a = await app.client(alice);
+    const b = await app.client(bob);
+    assert.equal((await b('/copy/alice.near', { method: 'PUT', body: { amountUsd: 0 } })).status, 400);
+    assert.equal((await b('/copy/bob.near', { method: 'PUT', body: { amountUsd: 50 } })).status, 400, 'no self-copy');
+    assert.equal((await b('/copy/alice.near', { method: 'PUT', body: { amountUsd: 50 } })).body.copying, true);
+    assert.equal((await b('/users/alice.near')).body.copying.amountUsd, 50);
+    assert.equal((await b('/users/alice.near')).body.isFollowing, true, 'copying also follows');
+
+    // Alice trades after Bob starts copying.
+    w.events['alice.near'] = [...nearBuy('alice.near', 'Hc1', 10, 1000, Date.now() + 1000)];
+    app.db.prepare('UPDATE users SET backfilled = 1 WHERE wallet = ?').run('alice.near');
+    await app.syncer.syncAccount('alice.near');
+    const copyRes = await b('/copy');
+    const copy = copyRes.body;
+    assert.equal(copyRes.status, 200, JSON.stringify(copy));
+    assert.equal(copy.copies.length, 1);
+    assert.equal(copy.copies[0].copiedBuys, 1);
+    assert.equal(copy.signals.length, 1);
+    assert.equal(copy.signals[0].side, 'buy');
+    assert.equal(copy.signals[0].yourAmountUsd, 50);
+    assert.match(copy.signals[0].swapUrl, /near%7C|near\|/i);
+    assert.match(copy.signals[0].swapUrl, /blackdragon/);
+
+    const sim = (await a('/users/alice.near/copy-sim?days=30&amount=100')).body;
+    assert.equal(sim.copiedBuys, 1);
+    assert.equal(sim.investedUsd, 100);
+
+    const token = (await a(`/tokens/${TOKEN}`)).body;
+    assert.equal(token.token.symbol, 'BLACKDRAGON');
+    assert.equal(token.members[0].user.wallet, 'alice.near');
+    assert.equal(token.stats.buys24h >= 1, true);
+    assert.match(token.swap.buyUrl, /blackdragon/);
+
+    const board = (await a('/leaderboard')).body.rows;
+    assert.equal(board[0].copiers, 1);
+    assert.ok(board[0].copy30);
+
+    assert.equal((await b('/copy/alice.near', { method: 'DELETE' })).body.copying, false);
+    assert.equal((await b('/copy')).body.copies.length, 0);
+  } finally {
+    await app.close();
+  }
+});

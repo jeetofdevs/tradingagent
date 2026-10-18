@@ -22,7 +22,9 @@ See [docs/SYSTEM.md](docs/SYSTEM.md) for how the system works: data flow, archit
 | Feed | Latest and Following tabs; members' new trades auto-posted (can be turned off) |
 | Like, repost, reply, follow | Like X / Near Social |
 | Tip | NEAR sent account-to-account; the server checks it on-chain before it shows |
-| Leaderboard | Members ranked by profit on recorded trades |
+| Copy trades | Copy a trader with your own amount per trade: their buys and sells become signals with a ready-made swap you approve in your wallet. Shows what copying made since you started, and a 30-day "what if" on every profile |
+| Token pages | Price, which members trade it, their average entry and profit, recent member trades, Buy/Sell links |
+| Leaderboard | Top-3 podium, profit, win rate and 30-day copy return per trader |
 | People | Search by name, X handle or account |
 | About | How it works, what is on-chain, safety, comparison with Farcaster, Lens and Near Social (BOS), FAQ |
 
@@ -67,6 +69,8 @@ with `npm run build:wallet`.
 | `NEARBLOCKS_API_URL` | `https://api.nearblocks.io` | Token transfer history (trades) |
 | `NEARBLOCKS_API_KEY` | (empty) | Optional, raises NearBlocks rate limits |
 | `MIN_TIP_NEAR` | `0.01` | Smallest tip accepted |
+| `COPY_SWAP_URL` | `https://app.ref.finance/#{from}\|{to}` | Swap page that copy signals open; `{from}`/`{to}` are token contracts or `near` |
+| `COPY_COST_PCT` | `1` | Swap cost per side used in copy simulations |
 | `SYNC_INTERVAL_SEC` | `300` | How often members are checked for new trades |
 | `SYNC_BACKFILL_EVENTS` | `100` | Token events read when an account joins |
 | `SYNC_ACCOUNTS_PER_ROUND` | `10` | Accounts checked per round |
@@ -84,6 +88,22 @@ fallback.
    is a **full-access key of that account**. Without that check anyone could
    claim any name.
 4. A signed, HttpOnly session cookie keeps you logged in for 30 days.
+
+## How copy trading works
+
+Copying never trades for you and never touches your funds:
+
+1. On a profile, the leaderboard or **Copy → Find traders**, press **Copy**
+   and pick an amount per trade (USD). The dialog shows what that size
+   would have made over the last 30 days.
+2. When that trader buys or sells, the trade shows up under
+   **Copy → Signals** with your size (and the NEAR equivalent).
+3. **Copy buy / Copy sell** opens the swap on a NEAR DEX, prefilled with the
+   token. You check it and approve it in your own wallet.
+
+Copy results are simulated from the leader's recorded trades: each of their
+buys is copied at your amount, each sell sells the same share of your
+copied position, with a 1% swap cost each way.
 
 ## How profit is calculated
 
@@ -108,6 +128,7 @@ src/near.js       NEAR RPC, FastNEAR and NearBlocks clients; swap parser; tip ch
 src/portfolio.js  Holdings and profit
 src/prices.js     Ref Finance + DexScreener prices
 src/sync.js       Background job that reads members' new trades
+src/copy.js       Copy-trading simulation
 src/db.js         SQLite schema
 public/           The website (plain HTML, CSS and JS) and logo
 wallet/           Source for the NEAR wallet bundle

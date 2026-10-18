@@ -26,6 +26,9 @@ function loadConfig() {
     nearblocksUrl: str('NEARBLOCKS_API_URL', 'https://api.nearblocks.io'),
     nearblocksKey: str('NEARBLOCKS_API_KEY', ''), // optional, raises the rate limit
     minTipNear: num('MIN_TIP_NEAR', 0.01),
+    // Copy trades open this swap page. {from} and {to} are token contracts, or "near".
+    swapUrl: str('COPY_SWAP_URL', 'https://app.ref.finance/#{from}|{to}'),
+    copyCostPct: num('COPY_COST_PCT', 1), // swap cost per side used in copy simulations
     syncIntervalSec: num('SYNC_INTERVAL_SEC', 300),
     syncBackfillEvents: num('SYNC_BACKFILL_EVENTS', 100), // token events read when an account joins
     syncAccountsPerRound: num('SYNC_ACCOUNTS_PER_ROUND', 10),
