@@ -26,21 +26,59 @@ node scripts/render-brand.js --ca=YOUR_CONTRACT --url=https://YOUR-SITE
 Always copy the CA from the deploy transaction, never retype it. Check the
 rendered image character by character before posting.
 
-## First post (draft)
+## First post: a 3-post thread
 
-> Near Social is live 🟢
->
-> The social network for NEAR traders where every profit is real:
-> holdings, PnL and trades read straight from the chain. No screenshots.
->
-> • Real on-chain PnL on every profile
-> • Copy trades from top traders, you approve every swap
-> • Tip any NEAR token, posts show $ received
->
-> CA: YOUR_CONTRACT
-> App: https://YOUR-SITE
->
-> Community project, not affiliated with NEAR Foundation. Not financial advice. DYOR.
+Lengths checked against X's 280-character limit (emoji count as 2, links as 23).
+With a short named CA (like `name.tkn.near`) the first post is about 236
+characters. With a 64-character CA it is 281, so drop "No screenshots."
 
-Before posting: double-check the CA, and say clearly what the token does or
-does not do in the app (right now the app does not use it for anything).
+**Post 1** (attach `launch-post.png` with the real CA, then pin it)
+
+```
+Near Social is live 🟢
+
+Where every NEAR trader's profit is real, read straight from the chain. No screenshots.
+
+📊 On-chain PnL
+🔁 Copy trades
+💸 Tip any token
+
+CA: YOUR_CA
+🌐 https://YOUR-SITE
+
+Community project. NFA
+```
+
+**Post 2** (reply to post 1)
+
+```
+How it works 👇
+
+1. Connect your NEAR wallet (signing a message, no fee)
+2. Your holdings, profit & trade history fill in by themselves
+3. Post, follow, copy the best traders, tip in any token
+
+Every number comes from the chain, not from a screenshot.
+```
+
+**Post 3** (reply to post 2)
+
+```
+Safety first:
+
+• Copy trading never touches your funds. You approve every swap
+• Tips go wallet to wallet, verified on-chain
+• Always copy the CA from this account only
+
+Community project, not affiliated with NEAR Foundation. Not financial advice. DYOR.
+```
+
+**X bio** (127 of 160 characters)
+
+```
+The social network for NEAR traders. Real on-chain PnL, copy trades, tip any token. Community project, not NEAR Foundation. NFA
+```
+
+Before posting: copy the CA from the deploy transaction (never retype it),
+check it on the image character by character, and say honestly what the
+token does in the app (right now the app does not use it for anything).
