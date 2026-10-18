@@ -7,7 +7,7 @@ chain.** Sign in with a NEAR wallet and your profile shows what you hold,
 your profit and your trade history, read straight from NEAR. Post, reply,
 like, repost, follow, and tip anyone in NEAR.
 
-See [ROADMAP.md](ROADMAP.md) for the plan, architecture and security notes.
+See [docs/SYSTEM.md](docs/SYSTEM.md) for how the system works: data flow, architecture, security and limits.
 
 ## Features
 
@@ -24,7 +24,7 @@ See [ROADMAP.md](ROADMAP.md) for the plan, architecture and security notes.
 | Tip | NEAR sent account-to-account; the server checks it on-chain before it shows |
 | Leaderboard | Members ranked by profit on recorded trades |
 | People | Search by name, X handle or account |
-| Roadmap | In-app page and ROADMAP.md |
+| About | How it works, what is on-chain, safety, comparison with Farcaster, Lens and Near Social (BOS), FAQ |
 
 Dark and light mode, works on desktop and phone.
 

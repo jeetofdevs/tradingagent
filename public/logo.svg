@@ -17,8 +17,8 @@
   <rect width="64" height="64" rx="16" fill="url(#glow)"/>
   <!-- chat bubble -->
   <path d="M19 13h26a9 9 0 0 1 9 9v16a9 9 0 0 1-9 9H28l-9.5 7.2c-1 .8-2.5 0-2.5-1.3V47.2A9 9 0 0 1 10 38.6V22a9 9 0 0 1 9-9z" fill="url(#mint)"/>
-  <!-- N: two rounded stems joined by a diagonal -->
-  <path d="M24 38V22.5L40 37.5V22" fill="none" stroke="#04150D" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- NEAR N mark, centred in the bubble -->
+  <path transform="translate(19.2 17.3) scale(0.285)" fill="#04150D" d="M72.2 4.6L53.4 32.5c-1.3 1.9 1.2 4.2 3 2.6L74.9 19c.5-.4 1.2-.1 1.2.6v50.3c0 .7-.9 1-1.3.5L18.5 2.9C16.7.7 14.1-.5 11.2-.5H9.2C4-.5-.2 3.7-.2 8.9v70.2c0 5.2 4.2 9.4 9.4 9.4 3.3 0 6.3-1.7 8-4.5l18.8-27.9c1.3-1.9-1.2-4.2-3-2.6L14.9 69c-.5.4-1.2.1-1.2-.6V18.2c0-.7.9-1 1.3-.5l56.2 67.5c1.8 2.2 4.5 3.4 7.3 3.4h2c5.2 0 9.4-4.2 9.4-9.4V8.9c0-5.2-4.2-9.4-9.4-9.4-3.4 0-6.4 1.7-8.1 4.5z"/>
   <!-- notification dot -->
   <circle cx="51" cy="14" r="7" fill="#FF4F8B" stroke="#03130C" stroke-width="3"/>
 </svg>

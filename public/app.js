@@ -26,6 +26,7 @@
     shield: '<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
     spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>',
     logout: '<path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4"/><path d="M10 17l-5-5 5-5M5 12h11"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
     edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/>',
   };
   const icon = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
@@ -537,23 +538,56 @@
       </form>`);
   }
 
-  function pageRoadmap() {
-    const phases = [
-      { s: 'done', t: 'Foundation', items: ['Sign in with Meteor, HOT, Intear, HERE or MyNearWallet (signed message, no transaction)', 'Profiles: name, bio, X handle, followers', 'Posts, replies, likes, reposts, follows', 'Latest and Following feeds'] },
-      { s: 'done', t: 'On-chain profiles', items: ['Live NEAR and token holdings, priced in USD', 'Profit per token: realized, unrealized, win rate', 'Trade history from each account’s swaps', 'Recent trades across members, auto-posted to the feed', 'Leaderboard and people search'] },
-      { s: 'done', t: 'Tips', items: ['Tip any post or profile in NEAR', 'Every tip verified on-chain before it shows', 'Tip history on each profile'] },
-      { s: 'now', t: 'Signal', items: ['Alerts when accounts you follow buy or sell', 'Token pages: which members hold it, average entry', 'Notifications for likes, reposts, replies, follows and tips', 'Faster trade sync'] },
-      { s: '', t: 'Creator economy', items: ['Token-gated groups', 'Creator stats and tip leaderboards', 'Verified badges for KOL and project accounts', 'Installable mobile app with push notifications'] },
-      { s: '', t: 'Open and on-chain', items: ['Posts stored on-chain so profiles are portable', 'Public API for profiles, PnL and trade feeds', 'Chain signatures: show holdings from other chains'] },
+  function pageAbout() {
+    const app = esc(state.config.appName);
+    const steps = [
+      ['wallet', 'Connect', 'Pick a NEAR wallet and sign a short message. It proves you own the account. No transaction, no fee.'],
+      ['chart', 'Your profile fills itself', 'Holdings, profit and trade history are read from the NEAR blockchain. Nothing to upload, nothing to fake.'],
+      ['repost', 'Post and follow', 'Share calls, reply, like and repost. Follow traders and see their buys and sells in your feed.'],
+      ['tip', 'Tip what helps you', 'Send NEAR straight to a post or profile. It goes wallet to wallet, and the site checks it on-chain.'],
     ];
-    const label = { done: 'Shipped', now: 'Next', '': 'Planned' };
-    setPage(`${mobileTop()}${pageHead('Roadmap', `Where ${esc(state.config.appName)} is going. Built in public.`)}
-      <section class="card timeline">${phases.map((p, i) => `<div class="phase"><span class="dot ${p.s}"></span><div><h3>Phase ${i + 1} · ${esc(p.t)} <span class="pill ${p.s}">${label[p.s]}</span></h3><ul>${p.items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div></div>`).join('')}</section>
-      <section class="card pad"><h2 class="section-title">How it works</h2><div class="how">
-        <div class="feature">${icon('chart')}<b>Real data only</b>Holdings and trades come from the NEAR blockchain. Profit uses average cost on recorded swaps.</div>
-        <div class="feature">${icon('shield')}<b>Your keys stay yours</b>Signing in signs a message, never a transaction. Tips are transfers you approve.</div>
-        <div class="feature">${icon('spark')}<b>Not financial advice</b>Profits shown are past on-chain results, not promises.</div>
-      </div></section>`);
+    const layers = [
+      ['On-chain (public, permanent)', ['Your NEAR account and its keys', 'Token balances and every swap you make', 'Tips: real NEAR transfers between accounts']],
+      ['Off-chain (on our server)', ['Profile name, bio and X handle', 'Posts, replies, likes, reposts and follows', 'A cached copy of your trades, for speed']],
+    ];
+    const compare = [
+      ['', app, 'Near Social (BOS)', 'Farcaster', 'Lens'],
+      ['Chain', 'NEAR', 'NEAR', 'Ethereum L2 (Optimism)', 'Lens Chain'],
+      ['Sign in', 'NEAR wallet', 'NEAR wallet', 'Farcaster account', 'Lens profile'],
+      ['Profit and holdings on profile', '✓ from chain', '—', '—', '—'],
+      ['Trades auto-posted to feed', '✓', '—', '—', '—'],
+      ['Tips in native token', '✓ NEAR', 'via apps', 'via apps', 'via apps'],
+      ['Posts stored', 'Server', 'On-chain (SocialDB)', 'Hubs (off-chain network)', 'Lens Chain + storage network'],
+    ];
+    const faq = [
+      ['Is it free?', `Yes. Signing in, posting and liking cost nothing. Only tips move money, and 100% of a tip goes to the person you tip. ${app} takes no fee.`],
+      ['Can someone fake their profit?', 'No. Profit is worked out from swaps on the NEAR blockchain, not typed in. Trades made before an account joined are marked as estimates.'],
+      ['Can the site move my funds?', 'No. The site never gets your keys. Signing in signs a text message. Tips only happen when you approve them in your own wallet.'],
+      ['Which trades are counted?', 'Swaps where you trade NEAR, USDC or USDT for a token, or the reverse, on any NEAR DEX. Plain transfers and airdrops are not trades.'],
+      ['Can I hide my trades?', 'You can stop new trades being posted to the feed in your profile settings. Your holdings stay public on the blockchain either way.'],
+      ['Which wallets work?', 'Meteor, HOT, Intear, HERE and MyNearWallet, on desktop and mobile.'],
+    ];
+    setPage(`${mobileTop()}${pageHead(`About ${app}`, 'The social network where every profile is backed by the NEAR blockchain.')}
+      <div class="stack">
+        <section class="card pad"><h2 class="section-title">How it works</h2>
+          <div class="steps">${steps.map(([ic, t, d], i) => `<div class="step"><span class="step-n">${i + 1}</span><div>${icon(ic)}<b>${esc(t)}</b><p>${esc(d)}</p></div></div>`).join('')}</div></section>
+        <section class="card pad"><h2 class="section-title">What lives where</h2>
+          <div class="how">${layers.map(([t, items], i) => `<div class="feature">${icon(i ? 'users' : 'shield')}<b>${esc(t)}</b><ul class="plain">${items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>`).join('')}
+            <div class="feature">${icon('link')}<b>Data sources</b><ul class="plain"><li>NEAR RPC (FastNEAR)</li><li>NearBlocks token history</li><li>Ref Finance prices</li></ul></div></div></section>
+        <section class="card pad"><h2 class="section-title">Trust and safety</h2>
+          <div class="how">
+            <div class="feature">${icon('shield')}<b>Verified sign-in</b>The server checks your signature and that the key has full access to your account. Nobody can post as you.</div>
+            <div class="feature">${icon('tip')}<b>Verified tips</b>A tip appears only after the site finds the NEAR transfer on-chain, once per transaction.</div>
+            <div class="feature">${icon('spark')}<b>Safe content</b>Posts are shown as plain text with safe links only, and posting is rate limited against spam.</div>
+          </div></section>
+        <section class="card"><div class="pad" style="padding-bottom:0"><h2 class="section-title">Compared with other on-chain social apps</h2></div>
+          <div class="table-wrap"><table><thead><tr>${compare[0].map((h, i) => `<th${i === 1 ? ' style="color:var(--mint)"' : ''}>${esc(h)}</th>`).join('')}</tr></thead><tbody>
+          ${compare.slice(1).map((r) => `<tr>${r.map((c, i) => `<td${i === 0 ? ' class="muted"' : i === 1 ? ' style="font-weight:700"' : ''}>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+          <p class="foot-note pad" style="margin:0">Feature summary, not an endorsement. Other apps change often; check their own docs.</p></section>
+        <section class="card pad"><h2 class="section-title">FAQ</h2>
+          ${faq.map(([q, a]) => `<details class="faq"><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join('')}</section>
+        <p class="foot-note" style="text-align:center">Not financial advice. Memecoins are extremely risky. Profits shown are past on-chain results.</p>
+      </div>`);
   }
 
   // ------------------------------------------------------------------ chrome
@@ -564,7 +598,7 @@
       ['trophy', '#/leaderboard', 'Leaderboard', 'leaderboard'],
       ['users', '#/people', 'People', 'people'],
       ['user', state.me ? `#/u/${state.me.wallet}` : '#/settings', 'Profile', 'me'],
-      ['map', '#/roadmap', 'Roadmap', 'roadmap'],
+      ['info', '#/about', 'About', 'about'],
     ];
     $('#nav').innerHTML = nav.map(([ic, href, label, r]) => `<a href="${esc(href)}" data-route="${r || ic}">${icon(ic)}<span>${label}</span></a>`).join('')
       + (state.me ? '' : `<button class="btn primary lg cta" data-action="signin">${icon('wallet')} Connect wallet</button>`);
@@ -584,7 +618,7 @@
     $('#rail').innerHTML = `<form data-form="search" class="search">${icon('search', 'sm')}<input type="search" name="q" placeholder="Search Near Social" aria-label="Search"></form>
       <section class="card pad"><h3>Top traders</h3><div id="railBoard">${spinner}</div></section>
       <section class="card pad"><h3>Live trades</h3><div id="railTrades">${spinner}</div></section>
-      <div class="rail-foot"><a href="#/roadmap">Roadmap</a> · Not financial advice · Built on NEAR</div>`;
+      <div class="rail-foot"><a href="#/about">About</a> · Not financial advice · Built on NEAR</div>`;
     api('/leaderboard').then(({ rows }) => {
       $('#railBoard').innerHTML = rows.slice(0, 5).map((r, i) => `<a class="mini" href="#/u/${esc(r.user.wallet)}"><span class="rank ${i < 3 ? 'r' + (i + 1) : ''}">${i + 1}</span>${avatar(r.user, 'sm')}<span class="who"><b>${esc(nameOf(r.user))}</b></span><b class="num ${cls(r.totalUsd)}">${signedUsd(r.totalUsd)}</b></a>`).join('') || '<p class="muted" style="margin:0">No traders yet.</p>';
     }).catch(() => { $('#railBoard').innerHTML = '<p class="muted" style="margin:0">Unavailable right now.</p>'; });
@@ -603,7 +637,7 @@
     if (page === 'trades') return pageTrades();
     if (page === 'leaderboard') return pageLeaderboard();
     if (page === 'people') return pagePeople(arg || '');
-    if (page === 'roadmap') return pageRoadmap();
+    if (page === 'about' || page === 'roadmap') return pageAbout();
     if (page === 'settings') return pageSettings();
     if (page === 'u' && arg) return pageProfile(arg, sub || 'posts');
     if (page === 'p' && arg) return pagePost(arg);

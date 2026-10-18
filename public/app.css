@@ -268,23 +268,24 @@ tr:last-child td { border-bottom: 0; }
 .notice { background: var(--mint-soft); border: 1px solid color-mix(in srgb, var(--mint) 30%, transparent); color: var(--text-2); border-radius: 14px; padding: 11px 14px; font-size: 14px; margin-bottom: 14px; }
 .foot-note { font-size: 13px; color: var(--muted); margin: 12px 0 0; }
 
-/* ---------- roadmap ---------- */
-.timeline { position: relative; padding: 6px 0; }
-.phase { position: relative; display: grid; grid-template-columns: 40px 1fr; gap: 12px; padding: 16px 20px 16px 14px; }
-.phase::before { content: ""; position: absolute; left: 33px; top: 0; bottom: 0; width: 2px; background: var(--border); }
-.phase:first-child::before { top: 26px; }
-.phase:last-child::before { bottom: calc(100% - 26px); }
-.dot { position: relative; z-index: 1; width: 16px; height: 16px; border-radius: 50%; margin: 5px auto 0; background: var(--surface); border: 2px solid var(--border-strong); }
-.dot.done { background: var(--mint); border-color: var(--mint); }
-.dot.now { background: var(--surface); border-color: var(--mint); box-shadow: 0 0 0 5px var(--mint-soft); }
-.phase h3 { margin: 0; font: 700 17px/1.3 var(--display); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.pill { font: 700 11px/1 var(--font); letter-spacing: 0.05em; text-transform: uppercase; padding: 5px 9px; border-radius: 999px; background: var(--surface-3); color: var(--muted); }
-.pill.done { background: var(--mint-soft); color: var(--mint); }
-.pill.now { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); }
-.phase ul { margin: 8px 0 0; padding-left: 18px; color: var(--text-2); }
-.phase li + li { margin-top: 3px; }
+/* ---------- about ---------- */
 .how { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .how .feature { background: var(--surface-2); }
+.steps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.step { display: flex; gap: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+.step-n { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--mint); color: var(--on-mint); font: 700 14px/1 var(--display); }
+.step svg { color: var(--mint); display: none; }
+.step b { display: block; margin-bottom: 2px; }
+.step p { margin: 0; color: var(--text-2); font-size: 14px; }
+ul.plain { margin: 6px 0 0; padding-left: 16px; }
+ul.plain li + li { margin-top: 2px; }
+.faq { border-bottom: 1px solid var(--border); padding: 12px 0; }
+.faq:last-child { border-bottom: 0; padding-bottom: 0; }
+.faq summary { cursor: pointer; font-weight: 650; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+.faq summary::after { content: "+"; color: var(--mint); font-weight: 700; }
+.faq[open] summary::after { content: "−"; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq p { margin: 8px 0 0; color: var(--text-2); }
 
 /* ---------- rail ---------- */
 .rail h3 { margin: 0 0 12px; font: 700 16px/1.2 var(--display); }
@@ -321,7 +322,7 @@ dialog::backdrop { background: rgba(2, 8, 5, 0.7); backdrop-filter: blur(4px); }
 @media (max-width: 780px) {
   .layout { grid-template-columns: minmax(0, 1fr); padding: 0 12px; gap: 0; }
   .sidebar { position: fixed; bottom: 0; left: 0; right: 0; top: auto; height: auto; z-index: 30; padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(14px); border-top: 1px solid var(--border); flex-direction: row; }
-  .sidebar .brand, .sidebar .account, .nav .cta, .nav a[data-route="roadmap"] { display: none; }
+  .sidebar .brand, .sidebar .account, .nav .cta, .nav a[data-route="about"] { display: none; }
   .nav { flex-direction: row; justify-content: space-around; width: 100%; gap: 0; }
   .nav a { flex-direction: column; gap: 3px; padding: 6px 2px; font-size: 10.5px; flex: 1; border-radius: 12px; }
   .nav a.active { background: none; }
@@ -330,7 +331,7 @@ dialog::backdrop { background: rgba(2, 8, 5, 0.7); backdrop-filter: blur(4px); }
   .mobile-top .brand { padding: 0; font-size: 19px; }
   .hero { padding: 24px 18px 20px; }
   .hero h1 { font-size: 28px; }
-  .features, .how { grid-template-columns: 1fr; }
+  .features, .how, .steps { grid-template-columns: 1fr; }
   .post { padding: 14px; }
   .repost-line { padding-left: 46px; }
   .page-head h1 { font-size: 24px; }
