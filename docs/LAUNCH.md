@@ -7,6 +7,8 @@ Graphics live in `public/brand/` and are also served by the site at `/brand/...`
 | `x-avatar.png` | 400×400 (2x) | X / Telegram profile picture |
 | `x-header.png` | 1500×500 (2x) | X header. The bottom-left corner sits behind the profile picture on X, so keep that area empty |
 | `launch-post.png` | 1600×900 (2x) | First post image, with the CA box |
+| `thread-2-how-it-works.png` | 1600×900 (2x) | Image for post 2 of the thread |
+| `thread-3-safety.png` | 1600×900 (2x) | Image for post 3 of the thread |
 | `og.png` | 1200×630 (2x) | Link preview when the site URL is shared |
 
 ## Put the real CA on the launch image
@@ -49,7 +51,7 @@ CA: YOUR_CA
 Community project. NFA
 ```
 
-**Post 2** (reply to post 1)
+**Post 2** (reply to post 1, attach `thread-2-how-it-works.png`)
 
 ```
 How it works 👇
@@ -61,7 +63,7 @@ How it works 👇
 Every number comes from the chain, not from a screenshot.
 ```
 
-**Post 3** (reply to post 2)
+**Post 3** (reply to post 2, attach `thread-3-safety.png`)
 
 ```
 Safety first:

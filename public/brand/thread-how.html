@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Near Social · thread post 2 · How it works 1600x900</title><link rel="stylesheet" href="brand.css">
+<style>
+  .canvas { width: 1600px; height: 900px; padding: 70px 90px; }
+  .top { display: flex; justify-content: space-between; align-items: center; }
+  .top .wordmark { font-size: 32px; }
+  .top .wordmark img { width: 54px; height: 54px; }
+  .num { font: 700 22px/1 "Space Grotesk"; color: var(--muted); letter-spacing: 0.1em; }
+  h1 { font-size: 84px; line-height: 1; margin: 56px 0 50px; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; }
+  .step { padding: 34px 32px 30px; min-height: 430px; display: flex; flex-direction: column; }
+  .n { width: 62px; height: 62px; border-radius: 50%; display: grid; place-items: center; font: 700 30px/1 "Space Grotesk"; color: #03130c; background: linear-gradient(135deg, var(--mint-2), var(--mint)); margin-bottom: 26px; }
+  .step h2 { font: 700 36px/1.1 "Space Grotesk"; letter-spacing: -0.02em; margin-bottom: 14px; }
+  .step p { font-size: 23px; line-height: 1.4; color: var(--text-2); }
+  .ui { margin-top: auto; padding-top: 26px; }
+  .pill { display: inline-flex; align-items: center; gap: 10px; padding: 12px 18px; border-radius: 14px; background: rgba(160, 255, 210, 0.07); border: 1px solid rgba(160, 255, 210, 0.16); font-size: 19px; font-weight: 600; margin: 0 8px 8px 0; }
+  .pill img { width: 28px; height: 28px; border-radius: 8px; }
+  .big { font: 700 44px/1 "Space Grotesk"; color: var(--mint); }
+  .small { font-size: 17px; color: var(--muted); margin-top: 6px; }
+  .acts { display: flex; gap: 10px; flex-wrap: wrap; }
+  .acts span { padding: 10px 16px; border-radius: 999px; font-size: 18px; font-weight: 700; }
+  .a1 { background: rgba(255, 79, 139, 0.14); color: var(--pink); }
+  .a2 { background: rgba(0, 229, 153, 0.14); color: var(--mint); }
+  .a3 { background: rgba(255, 181, 71, 0.14); color: var(--amber); }
+  .a4 { background: rgba(139, 92, 246, 0.18); color: #b9a2ff; }
+</style></head>
+<body><div class="canvas" id="art">
+  <div class="top"><div class="wordmark"><img src="/logo.svg" alt="">Near Social</div><div class="num">2 / 3</div></div>
+  <h1 class="display">How it works <span class="grad">in 3 steps</span></h1>
+  <div class="steps">
+    <div class="panel step"><span class="n">1</span><h2>Connect</h2><p>Sign in with your NEAR wallet. You only sign a message: no fee, no transaction.</p>
+      <div class="ui"><span class="pill"><img src="/logo.svg" alt="">Connect NEAR wallet</span><div class="small">Meteor · HOT · Intear · HERE · MyNearWallet</div></div></div>
+    <div class="panel step"><span class="n">2</span><h2>Your profile fills itself</h2><p>Holdings, profit and trade history are read straight from the chain.</p>
+      <div class="ui"><div class="big">+$2,318.40</div><div class="small">Total profit · 64% win rate · 42 trades</div></div></div>
+    <div class="panel step"><span class="n">3</span><h2>Post, copy, tip</h2><p>Share calls, follow and copy the best traders, tip in any NEAR token.</p>
+      <div class="ui acts"><span class="a1">♥ Like</span><span class="a2">⟲ Repost</span><span class="a4">Copy trades</span><span class="a3">$ Tip</span></div></div>
+  </div>
+</div></body></html>

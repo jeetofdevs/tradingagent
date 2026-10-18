@@ -4,7 +4,8 @@
 //   node scripts/render-brand.js --ca=token.near --url=https://your-site.app
 //
 // Needs the site running locally (npm run dev) or pass --base=https://your-site.app.
-// Writes public/brand/x-avatar.png, x-header.png, launch-post.png and og.png.
+// Writes public/brand/x-avatar.png, x-header.png, launch-post.png, og.png and the
+// thread images thread-2-how-it-works.png and thread-3-safety.png.
 
 const path = require('path');
 
@@ -27,6 +28,8 @@ const arg = (name, fallback = '') => (process.argv.find((a) => a.startsWith(`--$
     ['header.html', 'x-header.png', 1500, 500],
     [`launch.html?${q}`, 'launch-post.png', 1600, 900],
     ['og.html', 'og.png', 1200, 630],
+    ['thread-how.html', 'thread-2-how-it-works.png', 1600, 900],
+    ['thread-safety.html', 'thread-3-safety.png', 1600, 900],
   ];
   const browser = await chromium.launch();
   const page = await browser.newPage({ deviceScaleFactor: 2 });

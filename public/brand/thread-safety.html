@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Near Social · thread post 3 · Safety 1600x900</title><link rel="stylesheet" href="brand.css">
+<style>
+  .canvas { width: 1600px; height: 900px; padding: 70px 90px; }
+  .top { display: flex; justify-content: space-between; align-items: center; }
+  .top .wordmark { font-size: 32px; }
+  .top .wordmark img { width: 54px; height: 54px; }
+  .num { font: 700 22px/1 "Space Grotesk"; color: var(--muted); letter-spacing: 0.1em; }
+  .wrap { display: grid; grid-template-columns: 0.9fr 1.1fr; gap: 60px; align-items: center; margin-top: 60px; }
+  h1 { font-size: 96px; line-height: 0.98; }
+  .lead { font-size: 26px; color: var(--text-2); margin-top: 24px; line-height: 1.4; }
+  .shield { width: 150px; height: 150px; margin-bottom: 30px; border-radius: 36px; display: grid; place-items: center; background: rgba(0, 229, 153, 0.12); border: 1px solid rgba(0, 229, 153, 0.3); }
+  .shield svg { width: 84px; height: 84px; stroke: var(--mint); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .list { display: grid; gap: 18px; }
+  .item { display: flex; gap: 20px; align-items: flex-start; padding: 26px 28px; }
+  .item .tick { flex: none; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, var(--mint-2), var(--mint)); color: #03130c; font: 800 24px/1 Inter; }
+  .item b { display: block; font: 700 29px/1.15 "Space Grotesk"; letter-spacing: -0.01em; margin-bottom: 6px; }
+  .item span { font-size: 21px; color: var(--text-2); line-height: 1.35; }
+  .item.warn .tick { background: linear-gradient(135deg, #ffd27a, var(--amber)); }
+  .foot { position: absolute; left: 90px; right: 90px; bottom: 42px; font-size: 19px; color: var(--muted); text-align: center; }
+</style></head>
+<body><div class="canvas" id="art">
+  <div class="top"><div class="wordmark"><img src="/logo.svg" alt="">Near Social</div><div class="num">3 / 3</div></div>
+  <div class="wrap">
+    <div>
+      <div class="shield"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg></div>
+      <h1 class="display">Safety <span class="grad">first.</span></h1>
+      <p class="lead">Your keys stay yours. Nothing moves without your approval.</p>
+    </div>
+    <div class="list">
+      <div class="panel item"><span class="tick">✓</span><div><b>Copy trading never touches your funds</b><span>Every copied trade is a swap you check and approve in your own wallet.</span></div></div>
+      <div class="panel item"><span class="tick">✓</span><div><b>Tips go wallet to wallet</b><span>Each tip is verified on-chain before it shows on a post.</span></div></div>
+      <div class="panel item warn"><span class="tick">!</span><div><b>Only trust the CA from this account</b><span>Copy it, never retype it. Scammers post look-alike tokens.</span></div></div>
+    </div>
+  </div>
+  <div class="foot">Community project · not affiliated with NEAR Foundation · not financial advice · DYOR</div>
+</div></body></html>
