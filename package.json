@@ -1,14 +1,14 @@
 {
-  "name": "tradingagent",
-  "version": "0.1.0",
-  "description": "SolCircle: social network for Solana traders with on-chain holdings, profit and trade history, plus a demo-fund memecoin bot.",
+  "name": "near-social",
+  "version": "1.0.0",
+  "description": "Near Social: the social network for Solana traders, with on-chain holdings, profit and trade history on every profile.",
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "DATA_SOURCE=mock SCAN_INTERVAL_SEC=3 node src/server.js",
-    "test": "node --test test/*.test.js",
-    "seed": "node scripts/seed-demo.js"
+    "dev": "node --watch src/server.js",
+    "seed": "node scripts/seed-demo.js",
+    "test": "node --test test/*.test.js"
   },
   "engines": {
     "node": ">=22.13"

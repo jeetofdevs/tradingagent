@@ -1,8 +1,8 @@
 // Fills a local database with sample people, posts and trades so the site
 // can be previewed without real wallets. Usage: DATA_DIR=./data node scripts/seed-demo.js
 const crypto = require('crypto');
-const { openDb } = require('../src/social/db');
-const { base58Encode } = require('../src/social/auth');
+const { openDb } = require('../src/db');
+const { base58Encode } = require('../src/auth');
 
 const db = openDb(process.env.DATA_DIR || './data');
 const now = Date.now();

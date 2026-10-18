@@ -2,12 +2,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');
 const express = require('express');
-const { openDb } = require('../src/social/db');
-const { createAuth, base58Encode, base58Decode, isWallet, verifySignature } = require('../src/social/auth');
-const { parseSwaps, findSolTransfer, WSOL, USDC } = require('../src/social/solana');
-const { createPortfolio } = require('../src/social/portfolio');
-const { createSyncer } = require('../src/social/sync');
-const { createSocialRouter } = require('../src/social/routes');
+const { openDb } = require('../src/db');
+const { createAuth, base58Encode, base58Decode, isWallet, verifySignature } = require('../src/auth');
+const { parseSwaps, findSolTransfer, WSOL, USDC } = require('../src/solana');
+const { createPortfolio } = require('../src/portfolio');
+const { createSyncer } = require('../src/sync');
+const { createSocialRouter } = require('../src/routes');
 
 function newWallet() {
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
@@ -302,4 +302,14 @@ test('api: tips are checked on-chain before they count', async () => {
   } finally {
     await app.close();
   }
+});
+
+const { bestPairs } = require('../src/prices');
+
+test('prices: keeps the deepest pool and ignores other chains', () => {
+  const pair = (addr, liq, chainId = 'solana') => ({ chainId, baseToken: { address: addr, symbol: addr }, priceUsd: '0.5', liquidity: { usd: liq } });
+  const best = bestPairs([pair('A', 10), pair('A', 50), pair('B', 5, 'ethereum')], 'solana');
+  assert.equal(best.size, 1);
+  assert.equal(best.get('A').liquidityUsd, 50);
+  assert.equal(best.get('A').priceUsd, 0.5);
 });

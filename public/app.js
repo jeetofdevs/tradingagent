@@ -1,4 +1,4 @@
-/* SolCircle: social network for Solana traders. Plain JS, no build step. */
+/* Near Social: social network for Solana traders. Plain JS, no build step. */
 (() => {
   'use strict';
 
@@ -78,7 +78,7 @@
   }
 
   // ---------------------------------------------------------------- state
-  const state = { me: null, config: { appName: 'SolCircle', minTipSol: 0.001 } };
+  const state = { me: null, config: { appName: 'Near Social', minTipSol: 0.001 } };
 
   // ---------------------------------------------------------------- wallet
   function walletProvider() {
@@ -487,11 +487,12 @@
 
   function pageRoadmap() {
     const phases = [
-      { s: 'done', t: 'Phase 1 · Trading engine', when: 'Shipped', items: ['Solana memecoin scanner on live DexScreener data', 'Rug filters + RugCheck safety check', 'Demo fund with real Jupiter swap quotes', 'Grok second opinion that reads X before each buy', '“Ready for real money?” checklist'] },
-      { s: 'done', t: 'Phase 2 · Social layer', when: 'Shipped', items: ['Sign in with Phantom, Solflare or Backpack (message signature, no transaction)', 'Posts, replies, likes, reposts, follows', 'SOL tips wallet-to-wallet, verified on-chain', 'Live holdings, profit and trade history for every member', 'Recent trades feed and leaderboard'] },
-      { s: 'now', t: 'Phase 3 · Signal', when: 'Next', items: ['Copy-trade alerts: get notified when wallets you follow buy', 'Token pages: who on the site holds it and their average entry', 'Bot strategy cards: share the demo bot’s calls to the feed', 'Notifications for likes, reposts, replies and tips'] },
-      { s: '', t: 'Phase 4 · Creator economy', when: 'Planned', items: ['Paid groups gated by holding a token', 'Tip leaderboards and creator stats', 'Verified badges for KOL and project wallets', 'Mobile app (PWA) with push notifications'] },
-      { s: '', t: 'Phase 5 · On-chain social', when: 'Exploring', items: ['Store posts on-chain or on Arweave so profiles are portable', 'Open API so other apps can read profiles and PnL', 'Live trading for the bot, only after the demo passes every readiness check'] },
+      { s: 'done', t: 'Phase 1 · Foundation', when: 'Shipped', items: ['Sign in with Phantom, Solflare or Backpack (message signature, no transaction)', 'Profiles: name, bio, X handle, followers', 'Posts, replies, likes, reposts, follows', 'Latest and Following feeds'] },
+      { s: 'done', t: 'Phase 2 · On-chain profiles', when: 'Shipped', items: ['Live token holdings for every member, priced in USD', 'Profit per token: realized, unrealized, win rate', 'Trade history parsed from each wallet’s swaps', 'Recent trades across all members, auto-posted to the feed', 'Leaderboard and people search'] },
+      { s: 'done', t: 'Phase 3 · Tips', when: 'Shipped', items: ['Tip any post or profile in SOL, wallet to wallet', 'Every tip verified on-chain before it shows', 'Tip history on each profile'] },
+      { s: 'now', t: 'Phase 4 · Signal', when: 'Next', items: ['Alerts when wallets you follow buy or sell', 'Token pages: which members hold it and their average entry', 'Notifications for likes, reposts, replies, follows and tips', 'Instant trade sync with Helius webhooks'] },
+      { s: '', t: 'Phase 5 · Creator economy', when: 'Planned', items: ['Token-gated groups', 'Creator stats and tip leaderboards', 'Verified badges for KOL and project wallets', 'Installable mobile app with push notifications'] },
+      { s: '', t: 'Phase 6 · Open and on-chain', when: 'Exploring', items: ['Posts stored on Arweave or a Solana program so profiles are portable', 'Public API for profiles, PnL and trade feeds', 'Multi-chain wallets'] },
     ];
     setPage(`${mobileTop()}<h1 class="page">Roadmap</h1><p class="page-sub">Where ${esc(state.config.appName)} is going. Built in public.</p>
       <div class="panel">${phases.map((p) => `<div class="phase"><span class="dot ${p.s}"></span><div><h3>${esc(p.t)}<span class="status ${p.s === 'done' ? 'up' : p.s === 'now' ? '' : 'muted'}">${esc(p.when)}</span></h3><ul>${p.items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul></div></div>`).join('')}</div>
@@ -516,7 +517,6 @@
     const rail = $('#rail');
     rail.innerHTML = `<div class="panel pad"><h3>Top traders</h3><div id="railBoard" class="muted">Loading…</div></div>
       <div class="panel pad"><h3>Latest trades</h3><div id="railTrades" class="muted">Loading…</div></div>
-      <div class="panel pad"><h3>Demo trading bot</h3><p class="muted" style="margin:0 0 8px">Our memecoin bot trades a demo fund with live prices and Grok checks.</p><a class="btn small" href="/bot">Open dashboard</a></div>
       <p class="muted" style="font-size:12px;padding:0 4px"><a href="#/roadmap">Roadmap</a> · Not financial advice</p>`;
     api('/leaderboard').then(({ rows }) => {
       $('#railBoard').innerHTML = rows.slice(0, 5).map((r, i) => `<a class="mini" href="#/u/${esc(r.user.wallet)}"><span class="muted">${i + 1}</span>${avatar(r.user, 'sm')}<span class="who">${esc(nameOf(r.user))}</span><b class="num ${cls(r.totalUsd)}">${signedUsd(r.totalUsd)}</b></a>`).join('') || 'No traders yet.';
