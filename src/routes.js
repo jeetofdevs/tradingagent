@@ -175,6 +175,7 @@ function createSocialRouter({ db, auth, near, portfolio, syncer, cfg, now = () =
       network: 'mainnet',
       tokenCa: isAccountId(cfg.tokenCa || '') ? cfg.tokenCa : '',
       xHandle: /^[A-Za-z0-9_]{1,15}$/.test(cfg.xHandle || '') ? cfg.xHandle : '',
+      tokenTradeUrl: isAccountId(cfg.tokenCa || '') ? tradePage(cfg.tokenCa) : '',
     });
   });
 
@@ -484,7 +485,15 @@ function createSocialRouter({ db, auth, near, portfolio, syncer, cfg, now = () =
 
   const swapTemplate = cfg.swapUrl || 'https://app.ref.finance/#{from}|{to}';
   const copyCost = cfg.copyCostPct ?? 1;
-  const swapLink = (from, to) => swapTemplate.replace('{from}', encodeURIComponent(from)).replace('{to}', encodeURIComponent(to));
+  const httpsUrl = (u) => { try { return new URL(u).protocol === 'https:' ? u : ''; } catch { return ''; } };
+  // nearly.trade tokens trade on nearly.trade; the project token can also have its own trade page.
+  const tradePage = (token) => {
+    if (token === cfg.tokenCa && httpsUrl(cfg.tokenTradeUrl || '')) return cfg.tokenTradeUrl;
+    if (/^[a-z0-9_-]+\.nearlytrade\.near$/.test(token)) return `https://nearly.trade/${token}`;
+    return '';
+  };
+  const swapLink = (from, to) => tradePage(from === 'near' ? to : from)
+    || swapTemplate.replace('{from}', encodeURIComponent(from)).replace('{to}', encodeURIComponent(to));
 
   function signalOut(t) {
     return {

@@ -71,6 +71,7 @@ with `npm run build:wallet`.
 | `MIN_TIP_NEAR` | `0.01` | Smallest tip accepted |
 | `TOKEN_CA` | `social-2.nearlytrade.near` | Official token contract, shown with a Copy button on the home page, sidebar and About page |
 | `X_HANDLE` | `nearsocialfun` | Official X account, linked next to the CA |
+| `TOKEN_TRADE_URL` | `https://nearly.trade/social-2.nearlytrade.near` | "Buy" button next to the CA. Tokens ending in `.nearlytrade.near` always open nearly.trade for Buy, Sell and copy trades |
 | `COPY_SWAP_URL` | `https://app.ref.finance/#{from}\|{to}` | Swap page that copy signals open; `{from}`/`{to}` are token contracts or `near` |
 | `COPY_COST_PCT` | `1` | Swap cost per side used in copy simulations |
 | `SYNC_INTERVAL_SEC` | `300` | How often members are checked for new trades |

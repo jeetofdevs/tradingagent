@@ -225,6 +225,7 @@ test('api: sign in, profile, post, like, repost, reply, follow, delete', async (
     const conf = (await anon('/config')).body;
     assert.equal(conf.tokenCa, 'social-2.nearlytrade.near');
     assert.equal(conf.xHandle, 'nearsocialfun');
+    assert.equal(conf.tokenTradeUrl, 'https://nearly.trade/social-2.nearlytrade.near');
     assert.equal((await a('/me')).body.user.wallet, 'alice.near');
     assert.equal((await a('/me', { method: 'PUT', body: { name: 'Alice', bio: 'gm', xHandle: '@alice' } })).body.user.xHandle, 'alice');
 

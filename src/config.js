@@ -29,6 +29,9 @@ function loadConfig() {
     // The project's own token contract and X account, shown on the site.
     tokenCa: str('TOKEN_CA', 'social-2.nearlytrade.near'),
     xHandle: str('X_HANDLE', 'nearsocialfun').replace(/^@/, ''),
+    // Where the project token is traded. Tokens launched on nearly.trade
+    // (contracts ending in .nearlytrade.near) always trade there.
+    tokenTradeUrl: str('TOKEN_TRADE_URL', 'https://nearly.trade/social-2.nearlytrade.near'),
     // Copy trades open this swap page. {from} and {to} are token contracts, or "near".
     swapUrl: str('COPY_SWAP_URL', 'https://app.ref.finance/#{from}|{to}'),
     copyCostPct: num('COPY_COST_PCT', 1), // swap cost per side used in copy simulations
