@@ -4,6 +4,7 @@
 
   // ------------------------------------------------------------------ icons
   const ICONS = {
+    xlogo: '<path fill="currentColor" stroke="none" d="M17.75 3h3.07l-6.7 7.66L22 21h-6.17l-4.83-6.32L5.47 21H2.4l7.17-8.2L2 3h6.33l4.37 5.77zm-1.08 16.2h1.7L7.4 4.73H5.58z"/>',
     home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
     trades: '<path d="M7 7h13l-4-4"/><path d="M17 17H4l4 4"/>',
     trophy: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
@@ -754,6 +755,7 @@
     ];
     setPage(`${mobileTop()}${pageHead(`About ${app}`, 'The social network where every profile is backed by the NEAR blockchain.')}
       <div class="stack">
+        ${projectCard()}
         <section class="card pad"><h2 class="section-title">How it works</h2>
           <div class="steps">${steps.map(([ic, t, d], i) => `<div class="step"><span class="step-n">${i + 1}</span><div>${icon(ic)}<b>${esc(t)}</b><p>${esc(d)}</p></div></div>`).join('')}</div></section>
         <section class="card pad"><h2 class="section-title">What lives where</h2>
@@ -773,6 +775,20 @@
           ${faq.map(([q, a]) => `<details class="faq"><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join('')}</section>
         <p class="foot-note" style="text-align:center">Not financial advice. Memecoins are extremely risky. Profits shown are past on-chain results.</p>
       </div>`);
+  }
+
+  // ------------------------------------------------------------------ official CA + X
+  const xUrl = () => (state.config.xHandle ? `https://x.com/${encodeURIComponent(state.config.xHandle)}` : '');
+  const xLink = (cls = 'btn sm') => (xUrl() ? `<a class="${cls}" href="${esc(xUrl())}" target="_blank" rel="noopener noreferrer">${icon('xlogo', 'sm')} @${esc(state.config.xHandle)}</a>` : '');
+  function projectCard(compact = false) {
+    const ca = state.config.tokenCa;
+    if (!ca && !xUrl()) return '';
+    return `<section class="card ca-card${compact ? ' compact' : ''}">
+      ${ca ? `<div class="ca-head"><span class="ca-label">Official CA</span><span class="muted">NEAR token contract</span></div>
+      <div class="ca-row"><code class="ca-value">${esc(ca)}</code><button class="btn sm primary" data-action="copy" data-text="${esc(ca)}" data-what="Contract address copied">${icon('copy', 'sm')} Copy</button></div>` : ''}
+      <div class="ca-actions">${ca ? `<a class="btn sm" href="${tokenLink(ca)}">${icon('chart', 'sm')} Token page</a>` : ''}${xLink()}</div>
+      ${ca ? '<p class="ca-warn">Only trust this CA. Copy it, never retype it. Look-alike tokens are scams.</p>' : ''}
+    </section>`;
   }
 
   // ------------------------------------------------------------------ landing (signed out)
@@ -817,6 +833,7 @@
           <div class="mock-float copy">${icon('copytrade', 'sm')} 128 copiers</div>
         </div>
       </section>
+      ${projectCard()}
       <section class="card stat-strip" id="siteStats">
         ${['Members', 'Trades tracked', 'Trading volume', 'Tipped to creators'].map((l) => `<div><b>—</b><span>${l}</span></div>`).join('')}
       </section>
@@ -1050,9 +1067,10 @@
 
   async function renderRail() {
     $('#rail').innerHTML = `<form data-form="search" class="search">${icon('search', 'sm')}<input type="search" name="q" placeholder="Search Near Social" aria-label="Search"></form>
+      ${projectCard(true)}
       <section class="card pad"><h3>Top traders</h3><div id="railBoard">${spinner}</div></section>
       <section class="card pad"><h3>Live trades</h3><div id="railTrades">${spinner}</div></section>
-      <div class="rail-foot"><a href="#/about">About</a> · Not financial advice · Built on NEAR</div>`;
+      <div class="rail-foot"><a href="#/about">About</a>${xUrl() ? ` · <a href="${esc(xUrl())}" target="_blank" rel="noopener noreferrer">X</a>` : ''} · Not financial advice · Built on NEAR</div>`;
     fillBoard($('#railBoard'), 5);
     fillTrades($('#railTrades'), 6);
   }
@@ -1100,7 +1118,7 @@
       }
       if (a === 'copy') {
         await navigator.clipboard.writeText(el.dataset.text).catch(() => {});
-        return toast('Account copied');
+        return toast(el.dataset.what || 'Account copied');
       }
       if (a === 'copy-user') return copyDialog({ wallet: el.dataset.wallet, name: el.dataset.name }, Number(el.dataset.amount) || 0);
       if (a === 'tip' || a === 'tip-user') return tipDialog({ wallet: el.dataset.wallet, name: el.dataset.name }, a === 'tip' ? Number(id) : null);

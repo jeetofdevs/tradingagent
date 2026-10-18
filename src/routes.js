@@ -169,7 +169,13 @@ function createSocialRouter({ db, auth, near, portfolio, syncer, cfg, now = () =
   // ---- config & auth -------------------------------------------------------
 
   router.get('/config', (_req, res) => {
-    res.json({ appName: cfg.appName, minTipNear: cfg.minTipNear, network: 'mainnet' });
+    res.json({
+      appName: cfg.appName,
+      minTipNear: cfg.minTipNear,
+      network: 'mainnet',
+      tokenCa: isAccountId(cfg.tokenCa || '') ? cfg.tokenCa : '',
+      xHandle: /^[A-Za-z0-9_]{1,15}$/.test(cfg.xHandle || '') ? cfg.xHandle : '',
+    });
   });
 
   router.post('/auth/challenge', (req, res) => {

@@ -26,6 +26,9 @@ function loadConfig() {
     nearblocksUrl: str('NEARBLOCKS_API_URL', 'https://api.nearblocks.io'),
     nearblocksKey: str('NEARBLOCKS_API_KEY', ''), // optional, raises the rate limit
     minTipNear: num('MIN_TIP_NEAR', 0.01),
+    // The project's own token contract and X account, shown on the site.
+    tokenCa: str('TOKEN_CA', 'social-2.nearlytrade.near'),
+    xHandle: str('X_HANDLE', 'nearsocialfun').replace(/^@/, ''),
     // Copy trades open this swap page. {from} and {to} are token contracts, or "near".
     swapUrl: str('COPY_SWAP_URL', 'https://app.ref.finance/#{from}|{to}'),
     copyCostPct: num('COPY_COST_PCT', 1), // swap cost per side used in copy simulations

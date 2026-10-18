@@ -69,6 +69,8 @@ with `npm run build:wallet`.
 | `NEARBLOCKS_API_URL` | `https://api.nearblocks.io` | Token transfer history (trades) |
 | `NEARBLOCKS_API_KEY` | (empty) | Optional, raises NearBlocks rate limits |
 | `MIN_TIP_NEAR` | `0.01` | Smallest tip accepted |
+| `TOKEN_CA` | `social-2.nearlytrade.near` | Official token contract, shown with a Copy button on the home page, sidebar and About page |
+| `X_HANDLE` | `nearsocialfun` | Official X account, linked next to the CA |
 | `COPY_SWAP_URL` | `https://app.ref.finance/#{from}\|{to}` | Swap page that copy signals open; `{from}`/`{to}` are token contracts or `near` |
 | `COPY_COST_PCT` | `1` | Swap cost per side used in copy simulations |
 | `SYNC_INTERVAL_SEC` | `300` | How often members are checked for new trades |

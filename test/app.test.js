@@ -177,7 +177,7 @@ test('portfolio: average-cost profit with realized and unrealized parts', async 
 
 async function startApp(nearFake) {
   const db = openDb(null);
-  const cfg = { appName: 'Near Social', minTipNear: 0.01, syncBackfillEvents: 100, syncIntervalSec: 999, syncAccountsPerRound: 10 };
+  const cfg = { appName: 'Near Social', minTipNear: 0.01, syncBackfillEvents: 100, syncIntervalSec: 999, syncAccountsPerRound: 10, tokenCa: 'social-2.nearlytrade.near', xHandle: 'nearsocialfun' };
   const auth = createAuth({ db, near: nearFake, appName: cfg.appName, secret: 'x' });
   const portfolio = createPortfolio({ db, near: nearFake, quotes: priceFeed({ [WNEAR]: 5, [TOKEN]: 0.01 }) });
   const syncer = createSyncer({ db, near: nearFake, portfolio, cfg, log: { log() {}, error() {} } });
@@ -222,6 +222,9 @@ test('api: sign in, profile, post, like, repost, reply, follow, delete', async (
     const a = await app.client(alice);
     const b = await app.client(bob);
     const anon = await app.client(null);
+    const conf = (await anon('/config')).body;
+    assert.equal(conf.tokenCa, 'social-2.nearlytrade.near');
+    assert.equal(conf.xHandle, 'nearsocialfun');
     assert.equal((await a('/me')).body.user.wallet, 'alice.near');
     assert.equal((await a('/me', { method: 'PUT', body: { name: 'Alice', bio: 'gm', xHandle: '@alice' } })).body.user.xHandle, 'alice');
 
