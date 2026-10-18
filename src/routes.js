@@ -2,7 +2,7 @@
 
 const express = require('express');
 const { isAccountId } = require('./auth');
-const { findNearTransfer } = require('./near');
+const { findNearTransfer, findFtTransfer, WNEAR, toUnits } = require('./near');
 const { simulateCopy } = require('./copy');
 
 const COOKIE = 'sid';
@@ -85,7 +85,8 @@ function createSocialRouter({ db, auth, near, portfolio, syncer, cfg, now = () =
     const likes = count('SELECT post_id id, COUNT(*) n FROM likes WHERE post_id IN ($IDS) GROUP BY post_id');
     const reposts = count("SELECT ref_post_id id, COUNT(*) n FROM posts WHERE kind = 'repost' AND deleted = 0 AND ref_post_id IN ($IDS) GROUP BY ref_post_id");
     const replies = count("SELECT ref_post_id id, COUNT(*) n FROM posts WHERE kind = 'reply' AND deleted = 0 AND ref_post_id IN ($IDS) GROUP BY ref_post_id");
-    const tips = count('SELECT post_id id, SUM(amount) n FROM tips WHERE post_id IN ($IDS) GROUP BY post_id');
+    const tips = count('SELECT post_id id, SUM(usd) n FROM tips WHERE post_id IN ($IDS) GROUP BY post_id');
+    const tipCount = count('SELECT post_id id, COUNT(*) n FROM tips WHERE post_id IN ($IDS) GROUP BY post_id');
     const mine = (sql) => (viewer ? new Set(db.prepare(sql.replace('$IDS', marks)).all(viewer, ...list).map((r) => r.id)) : new Set());
     const liked = mine('SELECT post_id id FROM likes WHERE wallet = ? AND post_id IN ($IDS)');
     const reposted = mine("SELECT ref_post_id id FROM posts WHERE author = ? AND kind = 'repost' AND deleted = 0 AND ref_post_id IN ($IDS)");
@@ -113,7 +114,8 @@ function createSocialRouter({ db, auth, near, portfolio, syncer, cfg, now = () =
       likes: likes.get(p.id) || 0,
       reposts: reposts.get(p.id) || 0,
       replies: replies.get(p.id) || 0,
-      tipsNear: tips.get(p.id) || 0,
+      tipsUsd: tips.get(p.id) || 0,
+      tipCount: tipCount.get(p.id) || 0,
       liked: liked.has(p.id),
       reposted: reposted.has(p.id),
       mine: viewer === p.author,
@@ -311,7 +313,8 @@ function createSocialRouter({ db, auth, near, portfolio, syncer, cfg, now = () =
       following: one('SELECT COUNT(*) n FROM follows WHERE follower = ?', w),
       posts: one("SELECT COUNT(*) n FROM posts WHERE author = ? AND deleted = 0 AND kind IN ('post', 'trade')", w),
       trades: one('SELECT COUNT(*) n FROM trades WHERE wallet = ?', w),
-      tipsReceivedNear: one('SELECT COALESCE(SUM(amount), 0) n FROM tips WHERE to_wallet = ?', w),
+      tipsReceivedUsd: one('SELECT COALESCE(SUM(usd), 0) n FROM tips WHERE to_wallet = ?', w),
+      tipsReceivedCount: one('SELECT COUNT(*) n FROM tips WHERE to_wallet = ?', w),
       isFollowing: req.wallet ? Boolean(db.prepare('SELECT 1 FROM follows WHERE follower = ? AND followee = ?').get(req.wallet, w)) : false,
       copying: req.wallet ? (db.prepare('SELECT amount_usd amountUsd, created_at since FROM copies WHERE follower = ? AND leader = ?').get(req.wallet, w) || null) : null,
       copiers: one('SELECT COUNT(*) n FROM copies WHERE leader = ?', w),
@@ -556,15 +559,37 @@ function createSocialRouter({ db, auth, near, portfolio, syncer, cfg, now = () =
   }));
 
   // ---- tips ------------------------------------------------------------------
+  // Tips can be native NEAR or any NEP-141 token. The browser sends the
+  // transfer with the user's wallet, then reports the transaction hash; the
+  // server checks it on-chain and records its dollar value at that moment.
 
-  // The browser sends NEAR with the user's wallet, then reports the
-  // transaction hash. The server checks the transfer on-chain first.
+  // Before tipping a token: is the receiver registered on that token
+  // contract? If not, the wallet must pay its storage deposit in the same
+  // transaction, or the transfer fails.
+  router.get('/tips/prepare', requireUser, wrap(async (req, res) => {
+    const token = String(req.query.token || '');
+    const to = String(req.query.to || '');
+    if (!getUser.get(to)) return fail(res, 404, 'Tips can only go to registered accounts');
+    if (token === 'near') return res.json({ token: 'near', symbol: 'NEAR', decimals: 24, registered: true });
+    if (!isAccountId(token)) return fail(res, 400, 'Not a valid token contract');
+    const meta = await portfolio.tokenMeta(token);
+    const balance = await near.view(token, 'storage_balance_of', { account_id: to }).catch(() => null);
+    let storageDeposit = null;
+    if (!balance) {
+      const bounds = await near.view(token, 'storage_balance_bounds', {}).catch(() => null);
+      storageDeposit = bounds?.min || '1250000000000000000000';
+    }
+    res.json({ token, symbol: meta.symbol || '', decimals: meta.decimals ?? 0, registered: Boolean(balance), storageDeposit });
+  }));
+
   router.post('/tips', requireUser, wrap(async (req, res) => {
     const hash = String(req.body?.txHash || '');
     const to = String(req.body?.to || '');
+    const token = String(req.body?.token || 'near');
     if (!/^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(hash)) return fail(res, 400, 'Bad transaction hash');
     if (!getUser.get(to)) return fail(res, 404, 'Tips can only go to registered accounts');
     if (to === req.wallet) return fail(res, 400, 'You cannot tip yourself');
+    if (token !== 'near' && !isAccountId(token)) return fail(res, 400, 'Not a valid token contract');
     let postId = null;
     if (req.body?.postId != null) {
       const p = getPost.get(Number(req.body.postId));
@@ -575,17 +600,56 @@ function createSocialRouter({ db, auth, near, portfolio, syncer, cfg, now = () =
 
     const tx = await near.txStatus(hash, req.wallet);
     if (!tx) return res.status(202).json({ pending: true, message: 'Waiting for the transaction to finish' });
-    const amount = findNearTransfer(tx, req.wallet, to);
-    if (amount < cfg.minTipNear) return fail(res, 400, `No transfer of at least ${cfg.minTipNear} NEAR from you to them in that transaction`);
+
+    let amount;
+    let symbol;
+    if (token === 'near') {
+      amount = findNearTransfer(tx, req.wallet, to);
+      symbol = 'NEAR';
+      if (amount < cfg.minTipNear) return fail(res, 400, `No transfer of at least ${cfg.minTipNear} NEAR from you to them in that transaction`);
+    } else {
+      const raw = findFtTransfer(tx, token, req.wallet, to);
+      if (raw <= 0n) return fail(res, 400, 'No transfer of that token from you to them in that transaction');
+      const meta = await portfolio.tokenMeta(token);
+      amount = toUnits(raw.toString(), meta.decimals || 0);
+      symbol = meta.symbol || '';
+    }
     const blockHash = tx.transaction_outcome?.block_hash;
     if (blockHash) {
       const t = await near.blockTimeMs(blockHash);
       if (now() - t > 60 * 60000) return fail(res, 400, 'That transaction is too old to count as a tip');
     }
-    db.prepare('INSERT INTO tips (signature, from_wallet, to_wallet, post_id, amount, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(hash, req.wallet, to, postId, amount, now());
-    res.json({ ok: true, near: amount });
+    let usd = 0;
+    try {
+      const priceKey = token === 'near' ? WNEAR : token;
+      usd = amount * ((await portfolio.prices([priceKey])).get(priceKey)?.priceUsd || 0);
+    } catch {
+      usd = 0; // price unknown right now; the tip still counts
+    }
+    db.prepare('INSERT INTO tips (signature, from_wallet, to_wallet, post_id, token, symbol, amount, usd, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(hash, req.wallet, to, postId, token, symbol.slice(0, 20), amount, usd, now());
+    res.json({ ok: true, token, symbol, amount, usd });
   }));
+
+  // Site-wide numbers for the front page.
+  let statsCache = { t: 0, value: null };
+  router.get('/stats', (_req, res) => {
+    if (!statsCache.value || now() - statsCache.t > 60000) {
+      const n = (sql) => db.prepare(sql).get().n;
+      statsCache = {
+        t: now(),
+        value: {
+          members: n('SELECT COUNT(*) n FROM users'),
+          posts: n("SELECT COUNT(*) n FROM posts WHERE deleted = 0 AND kind IN ('post', 'reply')"),
+          trades: n('SELECT COUNT(*) n FROM trades'),
+          volumeUsd: n('SELECT COALESCE(SUM(value_usd), 0) n FROM trades'),
+          tipsUsd: n('SELECT COALESCE(SUM(usd), 0) n FROM tips'),
+          copies: n('SELECT COUNT(*) n FROM copies'),
+        },
+      };
+    }
+    res.json(statsCache.value);
+  });
 
   router.get('/users/:wallet/tips', requireWalletParam, (req, res) => {
     const rows = db.prepare('SELECT * FROM tips WHERE to_wallet = ? OR from_wallet = ? ORDER BY created_at DESC LIMIT 50')
@@ -596,7 +660,10 @@ function createSocialRouter({ db, auth, near, portfolio, syncer, cfg, now = () =
         from: publicUser(getUser.get(t.from_wallet)) || { wallet: t.from_wallet },
         to: publicUser(getUser.get(t.to_wallet)) || { wallet: t.to_wallet },
         postId: t.post_id,
-        near: t.amount,
+        token: t.token,
+        symbol: t.symbol,
+        amount: t.amount,
+        usd: t.usd,
         createdAt: t.created_at,
       })),
     });

@@ -44,5 +44,7 @@ insPost.run(people[2].wallet, 'reply', 'This is the way. More people should do t
 insPost.run(people[3].wallet, 'repost', '', first, null, now - 20 * 60000);
 db.prepare('INSERT OR IGNORE INTO likes VALUES (?, ?, ?)').run(first, people[0].wallet, now);
 db.prepare('INSERT OR IGNORE INTO follows VALUES (?, ?, ?)').run(people[0].wallet, people[1].wallet, now);
-db.prepare('INSERT OR IGNORE INTO tips VALUES (?, ?, ?, ?, ?, ?)').run(hash(), people[0].wallet, people[1].wallet, first, 2.5, now);
+const insTip = db.prepare('INSERT OR IGNORE INTO tips (signature, from_wallet, to_wallet, post_id, token, symbol, amount, usd, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+insTip.run(hash(), people[0].wallet, people[1].wallet, first, 'near', 'NEAR', 2.5, 12.8, now);
+insTip.run(hash(), people[2].wallet, people[1].wallet, first, 'blackdragon.tkn.near', 'BLACKDRAGON', 5000000000, 20.5, now);
 console.log(`Seeded ${people.length} people. Example profile: #/u/${people[1].wallet}`);

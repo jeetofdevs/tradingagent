@@ -13,10 +13,13 @@ layer: posts, replies, likes, reposts, follows and NEAR tips.
    from the NEAR blockchain.
 3. **Post and follow.** Share calls, reply, like, repost, follow traders;
    their new trades appear in your feed.
-4. **Copy.** Pick traders to copy and an amount per trade. Their buys and
+4. **Tip in any token.** NEAR or any token in your wallet. If the receiver is
+   not registered on that token, the same transaction pays their storage
+   deposit. Posts show the total dollar value they received.
+5. **Copy.** Pick traders to copy and an amount per trade. Their buys and
    sells become signals with a ready-made swap you approve in your own
    wallet. Nothing trades automatically.
-5. **Tip.** Send NEAR to a post or profile, wallet to wallet. The site
+6. **Tip.** Send NEAR to a post or profile, wallet to wallet. The site
    checks the transfer on-chain before showing it.
 
 ## What lives where
@@ -85,8 +88,10 @@ Express server (Railway)
   blocks cross-site forged requests.
 - All user text is escaped in the browser; only `https://` links become
   links. Token icons are shown only if they are images.
-- Tips count only after the server finds a successful NEAR transfer from
-  the tipper to the receiver on-chain, once per transaction.
+- Tips count only after the server finds the transfer on-chain, once per
+  transaction: a NEAR transfer, or for tokens an `ft_transfer` NEP-141 event
+  logged by that token contract from the tipper to the receiver. The dollar
+  value is fixed at the price when the tip is recorded.
 - Rate limits on sign-in, posting, reposting and manual sync.
 
 ## Known limits

@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const express = require('express');
 const { openDb } = require('../src/db');
 const { createAuth, isAccountId, nep413Hash, verifyNep413, base58Encode, base58Decode } = require('../src/auth');
-const { parseFtEvents, findNearTransfer, WNEAR } = require('../src/near');
+const { parseFtEvents, findNearTransfer, findFtTransfer, WNEAR } = require('../src/near');
 const { createPortfolio, safeIcon } = require('../src/portfolio');
 const { createSyncer } = require('../src/sync');
 const { createSocialRouter } = require('../src/routes');
@@ -298,10 +298,11 @@ test('api: tips are checked on-chain before they count', async () => {
     w.txs[hash] = tx('alice.near', 'bob.near', 0.5);
     const ok = await a('/tips', { method: 'POST', body: { txHash: hash, to: 'bob.near', postId: post.id } });
     assert.equal(ok.status, 200, JSON.stringify(ok.body));
-    assert.equal(ok.body.near, 0.5);
+    assert.equal(ok.body.amount, 0.5);
+    assert.equal(ok.body.usd, 2.5, '0.5 NEAR at $5');
     assert.equal((await a('/tips', { method: 'POST', body: { txHash: hash, to: 'bob.near' } })).status, 409);
-    assert.equal((await a('/users/bob.near')).body.tipsReceivedNear, 0.5);
-    assert.equal((await a('/feed')).body.posts.find((p) => p.id === post.id).tipsNear, 0.5);
+    assert.equal((await a('/users/bob.near')).body.tipsReceivedUsd, 2.5);
+    assert.equal((await a('/feed')).body.posts.find((p) => p.id === post.id).tipsUsd, 2.5);
   } finally {
     await app.close();
   }
@@ -382,6 +383,54 @@ test('api: copy a trader, see signals with swap links, stop copying; token page'
 
     assert.equal((await b('/copy/alice.near', { method: 'DELETE' })).body.copying, false);
     assert.equal((await b('/copy')).body.copies.length, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+const ftTx = (token, from, to, raw, { ok = true, executor = token } = {}) => ({
+  status: ok ? { SuccessValue: '' } : { Failure: {} },
+  transaction_outcome: { block_hash: 'b' },
+  transaction: { signer_id: from, receiver_id: token, actions: [] },
+  receipts_outcome: [{ outcome: { executor_id: executor, status: { SuccessValue: '' }, logs: [`EVENT_JSON:${JSON.stringify({ standard: 'nep141', version: '1.0.0', event: 'ft_transfer', data: [{ old_owner_id: from, new_owner_id: to, amount: raw }] })}`] } }],
+});
+
+test('token tips: only real NEP-141 transfer events from the token contract count', () => {
+  assert.equal(findFtTransfer(ftTx(TOKEN, 'a.near', 'b.near', '500'), TOKEN, 'a.near', 'b.near'), 500n);
+  assert.equal(findFtTransfer(ftTx(TOKEN, 'a.near', 'b.near', '500', { executor: 'evil.near' }), TOKEN, 'a.near', 'b.near'), 0n, 'event from another contract');
+  assert.equal(findFtTransfer(ftTx(TOKEN, 'a.near', 'c.near', '500'), TOKEN, 'a.near', 'b.near'), 0n);
+  assert.equal(findFtTransfer(ftTx(TOKEN, 'a.near', 'b.near', '500', { ok: false }), TOKEN, 'a.near', 'b.near'), 0n);
+});
+
+test('api: tip with any token shows its dollar value on the post', async () => {
+  const alice = newAccount('alice.near');
+  const bob = newAccount('bob.near');
+  const w = world(alice, bob);
+  const fake = fakeNear(w);
+  fake.view = async (contract, method) => (method === 'storage_balance_of' ? null : { min: '1250000000000000000000' });
+  const app = await startApp(fake);
+  const hash = base58Encode(crypto.randomBytes(32));
+  try {
+    const a = await app.client(alice);
+    const b = await app.client(bob);
+    const post = (await b('/posts', { method: 'POST', body: { body: 'tip me tokens' } })).body.post;
+    const prep = (await a(`/tips/prepare?token=${TOKEN}&to=bob.near`)).body;
+    assert.equal(prep.registered, false);
+    assert.equal(prep.decimals, 18);
+    assert.equal(prep.storageDeposit, '1250000000000000000000');
+    // 2000 tokens (18 decimals) at $0.01 = $20
+    w.txs[hash] = ftTx(TOKEN, 'alice.near', 'bob.near', e18(2000));
+    const r = await a('/tips', { method: 'POST', body: { txHash: hash, to: 'bob.near', postId: post.id, token: TOKEN } });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.amount, 2000);
+    assert.equal(r.body.usd, 20);
+    assert.equal(r.body.symbol, 'BLACKDRAGON');
+    const p = (await a('/feed')).body.posts.find((x) => x.id === post.id);
+    assert.equal(p.tipsUsd, 20);
+    assert.equal(p.tipCount, 1);
+    const tips = (await a('/users/bob.near/tips')).body.tips;
+    assert.equal(tips[0].symbol, 'BLACKDRAGON');
+    assert.equal((await a('/stats')).body.tipsUsd, 20);
   } finally {
     await app.close();
   }

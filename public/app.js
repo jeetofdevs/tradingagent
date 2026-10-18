@@ -29,6 +29,9 @@
     copytrade: '<rect x="8" y="8" width="13" height="13" rx="3"/><path d="M16 8V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v7a3 3 0 0 0 3 3h2"/><path d="m12 15 2 2 4-4"/>',
     external: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>',
     bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+    coins: '<ellipse cx="9" cy="7" rx="6" ry="3"/><path d="M3 7v5c0 1.7 2.7 3 6 3s6-1.3 6-3V7"/><path d="M9 15v2c0 1.7 2.7 3 6 3s6-1.3 6-3v-5c0-1.7-2.7-3-6-3"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
     edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/>',
   };
@@ -128,6 +131,20 @@
       throw err;
     }
     return { status: res.status, ...data };
+  }
+
+  function currentTheme() {
+    return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+  }
+  function paintThemeButtons() {
+    document.querySelectorAll('[data-action="theme"]').forEach((b) => { b.innerHTML = icon(currentTheme() === 'light' ? 'moon' : 'sun', 'sm'); });
+  }
+  function toggleTheme() {
+    const next = currentTheme() === 'light' ? 'dark' : 'light';
+    if (next === 'light') document.documentElement.dataset.theme = 'light';
+    else delete document.documentElement.dataset.theme;
+    try { localStorage.setItem('theme', next); } catch {}
+    paintThemeButtons();
   }
 
   const state = { me: null, config: { appName: 'Near Social', minTipNear: 0.01 } };
@@ -234,49 +251,94 @@
     return false;
   }
 
-  function tipDialog(to, postId) {
+  // Decimal string -> raw integer string for a token with `decimals`.
+  function toRaw(text, decimals) {
+    const [w, f = ''] = String(text).trim().split('.');
+    if (!/^\d*$/.test(w) || !/^\d*$/.test(f)) throw new Error('Enter a number');
+    return (BigInt(w || '0') * 10n ** BigInt(decimals) + BigInt((f + '0'.repeat(decimals)).slice(0, decimals) || '0')).toString();
+  }
+
+  // Connected wallet instance for the signed-in account (asks once if needed).
+  async function myWallet() {
+    const kit = await walletKit();
+    let id = null;
+    try { id = localStorage.getItem('nearWalletId'); } catch {}
+    let wallet = id ? await kit.selector.wallet(id).catch(() => null) : null;
+    if (!wallet) wallet = (await chooseWallet('Choose the wallet to tip with')).wallet;
+    let accounts = await wallet.getAccounts().catch(() => []);
+    if (!accounts.some((a) => a.accountId === state.me.wallet)) accounts = await wallet.signIn({});
+    if (!accounts.some((a) => a.accountId === state.me.wallet)) throw new Error(`Switch your wallet to ${state.me.wallet} and try again.`);
+    return wallet;
+  }
+
+  async function tipDialog(to, postId) {
     if (!requireLogin()) return;
-    const min = state.config.minTipNear;
     const d = openModal(`Tip ${nameOf(to)}`, `
-      <p class="muted" style="margin-top:0">Sends NEAR from your wallet straight to <b>${esc(to.wallet)}</b>. Near Social takes nothing.</p>
-      <div class="presets">${[0.1, 0.5, 1, 5].map((v) => `<button class="btn sm ${v === 0.5 ? 'on' : ''}" data-preset="${v}">${v} Ⓝ</button>`).join('')}</div>
-      <label class="field"><span>Amount (NEAR)</span><input type="number" id="tipAmount" min="${min}" step="0.01" value="0.5" inputmode="decimal"></label>
-      <button class="btn primary block lg" id="tipSend">${icon('tip')} Send tip</button>
+      <p class="muted" style="margin-top:0">Send NEAR or any token you hold straight to <b>${esc(to.wallet)}</b>. ${esc(state.config.appName)} takes nothing.</p>
+      <div class="token-pick" id="tokenPick">${spinner}</div>
+      <div class="amount-row field"><input type="text" id="tipAmount" inputmode="decimal" placeholder="0.0" aria-label="Amount" autocomplete="off"><button class="btn sm max" id="tipMax" type="button">Max</button></div>
+      <div class="usd-est" id="tipUsd">&nbsp;</div>
+      <button class="btn primary block lg" id="tipSend">${icon('coins')} Send tip</button>
       <p class="muted" id="tipStatus" style="margin:12px 0 0;min-height:1.5em"></p>`);
-    d.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', () => {
-      $('#tipAmount').value = b.dataset.preset;
-      d.querySelectorAll('[data-preset]').forEach((x) => x.classList.toggle('on', x === b));
-    }));
+    let tokens = [];
+    let pick = null;
+    const status = $('#tipStatus');
+    const showUsd = () => {
+      const v = Number($('#tipAmount').value);
+      $('#tipUsd').textContent = pick && v > 0 ? (pick.priceUsd ? `≈ ${usd(v * pick.priceUsd)}` : 'No market price for this token') : ' ';
+    };
+    try {
+      const h = await api(`/users/${encodeURIComponent(state.me.wallet)}/holdings`);
+      tokens = h.tokens.filter((t) => t.amount > 0);
+    } catch {
+      tokens = [{ mint: 'near', symbol: 'NEAR', amount: null, priceUsd: null }];
+    }
+    if (!tokens.some((t) => t.mint === 'near')) tokens.unshift({ mint: 'near', symbol: 'NEAR', amount: null, priceUsd: null });
+    const renderPick = () => {
+      $('#tokenPick').innerHTML = tokens.map((t, i) => `<button type="button" class="token-opt ${pick === t ? 'on' : ''}" data-i="${i}">${tokenIcon(t, 'sm')}<span class="t-name">${esc(t.mint === 'near' ? 'NEAR' : tokenName(t))}</span>
+        <span class="t-bal">${t.amount != null ? amount(t.amount) : ''}${t.valueUsd ? `<br>${usd(t.valueUsd)}` : ''}</span></button>`).join('');
+      d.querySelectorAll('.token-opt').forEach((b) => b.addEventListener('click', () => { pick = tokens[Number(b.dataset.i)]; renderPick(); showUsd(); }));
+    };
+    pick = tokens[0];
+    renderPick();
+    $('#tipAmount').addEventListener('input', showUsd);
+    $('#tipMax').addEventListener('click', () => {
+      if (pick && pick.amount != null) $('#tipAmount').value = String(pick.mint === 'near' ? Math.max(0, pick.amount - 0.05).toFixed(4) : pick.amount);
+      showUsd();
+    });
+
     $('#tipSend').addEventListener('click', async () => {
-      const near = Number($('#tipAmount').value);
-      const status = $('#tipStatus');
-      if (!(near >= min)) return void (status.textContent = `Minimum tip is ${min} NEAR`);
-      if (near > 100 && !confirm(`Send ${near} NEAR? That is a lot.`)) return;
+      const text = $('#tipAmount').value.trim();
+      const v = Number(text);
+      if (!(v > 0)) return void (status.textContent = 'Enter an amount');
+      if (pick.mint === 'near' && v < state.config.minTipNear) return void (status.textContent = `Minimum NEAR tip is ${state.config.minTipNear}`);
+      if (pick.amount != null && v > pick.amount) return void (status.textContent = 'That is more than you hold');
       const btn = $('#tipSend');
       btn.disabled = true;
       try {
-        status.textContent = 'Opening your wallet…';
-        const kit = await walletKit();
-        let id = null;
-        try { id = localStorage.getItem('nearWalletId'); } catch {}
-        let wallet = id ? await kit.selector.wallet(id).catch(() => null) : null;
-        if (!wallet) wallet = (await chooseWallet('Choose the wallet to tip with')).wallet;
-        let accounts = await wallet.getAccounts().catch(() => []);
-        if (!accounts.some((a) => a.accountId === state.me.wallet)) accounts = await wallet.signIn({});
-        if (!accounts.some((a) => a.accountId === state.me.wallet)) throw new Error(`Switch your wallet to ${state.me.wallet} and try again.`);
-        // Whole yoctoNEAR without floating point error.
-        const [whole, frac = ''] = String(near).split('.');
-        const deposit = (BigInt(whole) * 10n ** 24n + BigInt((frac + '0'.repeat(24)).slice(0, 24))).toString();
-        status.textContent = 'Approve the transfer in your wallet…';
-        const outcome = await wallet.signAndSendTransaction({ signerId: state.me.wallet, receiverId: to.wallet, actions: [{ type: 'Transfer', params: { deposit } }] });
+        status.textContent = 'Preparing…';
+        const prep = await api(`/tips/prepare?token=${encodeURIComponent(pick.mint)}&to=${encodeURIComponent(to.wallet)}`);
+        const wallet = await myWallet();
+        status.textContent = 'Approve the tip in your wallet…';
+        let tx;
+        if (pick.mint === 'near') {
+          tx = { signerId: state.me.wallet, receiverId: to.wallet, actions: [{ type: 'Transfer', params: { deposit: toRaw(text, 24) } }] };
+        } else {
+          const actions = [];
+          // The receiver must be registered on the token before it can hold it.
+          if (!prep.registered) actions.push({ type: 'FunctionCall', params: { methodName: 'storage_deposit', args: { account_id: to.wallet, registration_only: true }, gas: '30000000000000', deposit: prep.storageDeposit } });
+          actions.push({ type: 'FunctionCall', params: { methodName: 'ft_transfer', args: { receiver_id: to.wallet, amount: toRaw(text, prep.decimals), memo: `Tip via ${state.config.appName}` }, gas: '30000000000000', deposit: '1' } });
+          tx = { signerId: state.me.wallet, receiverId: pick.mint, actions };
+        }
+        const outcome = await wallet.signAndSendTransaction(tx);
         const txHash = outcome && (outcome.transaction?.hash || outcome.transaction_outcome?.id);
         if (!txHash) throw new Error('The wallet did not return a transaction');
         status.textContent = 'Sent. Confirming on-chain…';
         for (let i = 0; i < 20; i++) {
-          const r = await api('/tips', { method: 'POST', body: { txHash, to: to.wallet, postId } });
+          const r = await api('/tips', { method: 'POST', body: { txHash, to: to.wallet, postId, token: pick.mint } });
           if (r.status !== 202) {
-            $('#modal').close();
-            toast(`Tipped ${r.near} NEAR`);
+            d.close();
+            toast(`Tipped ${amount(r.amount)} ${r.symbol}${r.usd ? ` (${usd(r.usd)})` : ''}`);
             route();
             return;
           }
@@ -320,11 +382,12 @@
           <a class="handle" href="#/p/${p.id}" title="${new Date(p.createdAt).toLocaleString()}">${ago(p.createdAt)}</a>
         </div>
         ${reply}${body}
+        ${p.tipCount ? `<div class="tip-pill">${icon('coins', 'sm')} ${usd(p.tipsUsd)} tipped${p.tipCount > 1 ? ` by ${p.tipCount} people` : ''}</div>` : ''}
         <div class="actions">
           <button class="act reply" data-action="reply" data-id="${p.id}" aria-label="Reply">${icon('reply', 'sm')}<span class="n">${p.replies || ''}</span></button>
           <button class="act repost ${p.reposted ? 'on' : ''}" data-action="repost" data-id="${p.id}" aria-label="Repost" aria-pressed="${p.reposted}">${icon('repost', 'sm')}<span class="n">${p.reposts || ''}</span></button>
           <button class="act like ${p.liked ? 'on' : ''}" data-action="like" data-id="${p.id}" aria-label="Like" aria-pressed="${p.liked}">${icon('heart', 'sm')}<span class="n">${p.likes || ''}</span></button>
-          ${p.mine ? `<button class="act more" data-action="delete" data-id="${p.id}" aria-label="Delete">${icon('trash', 'sm')}</button>` : `<button class="act tip ${p.tipsNear ? 'on' : ''}" data-action="tip" data-id="${p.id}" data-wallet="${esc(p.author.wallet)}" data-name="${esc(p.author.name || '')}" aria-label="Tip">${icon('tip', 'sm')}<span class="n">${p.tipsNear ? amount(p.tipsNear) + ' Ⓝ' : ''}</span></button>`}
+          ${p.mine ? `<button class="act more" data-action="delete" data-id="${p.id}" aria-label="Delete">${icon('trash', 'sm')}</button>` : `<button class="act tip ${p.tipsUsd ? 'on' : ''}" data-action="tip" data-id="${p.id}" data-wallet="${esc(p.author.wallet)}" data-name="${esc(p.author.name || '')}" aria-label="Tip">${icon('coins', 'sm')}<span class="n">${p.tipsUsd ? usd(p.tipsUsd) : ''}</span></button>`}
           <button class="act more" data-action="share" data-id="${p.id}" aria-label="Copy link">${icon('share', 'sm')}</button>
         </div>
       </div>
@@ -340,7 +403,7 @@
         <div class="features">
           <div class="feature">${icon('chart')}<b>Real PnL</b>Holdings and profit from your wallet</div>
           <div class="feature">${icon('repost')}<b>Social</b>Post, like, repost, reply, follow</div>
-          <div class="feature">${icon('tip')}<b>Tips</b>Send NEAR to great calls in one tap</div>
+          <div class="feature">${icon('coins')}<b>Tips</b>Tip any NEAR token in one tap</div>
         </div>
         <button class="btn primary lg" data-action="signin">${icon('wallet')} Connect NEAR wallet</button>
       </section>`;
@@ -357,7 +420,7 @@
   // ------------------------------------------------------------------ pages
   const main = () => $('#main');
   const setPage = (html) => { main().innerHTML = html; };
-  const mobileTop = () => `<div class="mobile-top"><a class="brand" href="#/"><img src="/logo.svg" alt="" width="30" height="30">${esc(state.config.appName)}</a>${state.me ? `<a href="#/u/${esc(state.me.wallet)}">${avatar(state.me, 'sm')}</a>` : `<button class="btn sm primary" data-action="signin">Connect</button>`}</div>`;
+  const mobileTop = () => `<div class="mobile-top"><a class="brand" href="#/"><img src="/logo.svg" alt="" width="30" height="30">${esc(state.config.appName)}</a><span style="display:flex;gap:8px;align-items:center"><button class="theme-btn" data-action="theme" aria-label="Switch light or dark mode" style="width:34px;height:34px">${icon(currentTheme() === 'light' ? 'moon' : 'sun', 'sm')}</button>${state.me ? `<a href="#/u/${esc(state.me.wallet)}">${avatar(state.me, 'sm')}</a>` : `<button class="btn sm primary" data-action="signin">Connect</button>`}</span></div>`;
   const pageHead = (title, sub) => `<div class="page-head"><h1>${esc(title)}</h1>${sub ? `<p>${sub}</p>` : ''}</div>`;
 
   async function pageHome(tab = 'latest') {
@@ -512,7 +575,7 @@
           ${u.xHandle ? `<a class="chip" href="https://x.com/${esc(u.xHandle)}" target="_blank" rel="noopener">𝕏 @${esc(u.xHandle)}</a>` : ''}
         </div>
         ${u.bio ? `<p class="bio">${richText(u.bio)}</p>` : ''}
-        <div class="stat-row"><span><b>${prof.followers}</b> ${prof.followers === 1 ? 'follower' : 'followers'}</span><span><b>${prof.following}</b> following</span><span><b>${prof.trades}</b> trades</span><span><b>${amount(prof.tipsReceivedNear)} Ⓝ</b> tips</span><span><b>${prof.copiers}</b> ${prof.copiers === 1 ? 'copier' : 'copiers'}</span><span>Joined ${new Date(u.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</span></div>
+        <div class="stat-row"><span><b>${prof.followers}</b> ${prof.followers === 1 ? 'follower' : 'followers'}</span><span><b>${prof.following}</b> following</span><span><b>${prof.trades}</b> trades</span><span><b>${usd(prof.tipsReceivedUsd)}</b> tips received</span><span><b>${prof.copiers}</b> ${prof.copiers === 1 ? 'copier' : 'copiers'}</span><span>Joined ${new Date(u.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</span></div>
       </div>
       <div class="overview" id="overview"><div class="tiles">${['Total profit', 'Win rate', 'Volume', 'Copy · 30 days'].map((l) => `<div class="tile"><div class="label">${l}</div><div class="value muted">…</div></div>`).join('')}</div></div>
       <div class="profile-tabs"><div class="tabs">${tabs.map(([k, l]) => `<a href="#/u/${esc(u.wallet)}/${k}" class="${k === tab ? 'active' : ''}">${l}</a>`).join('')}</div></div>
@@ -558,7 +621,7 @@
         const { tips } = await api(`/users/${enc}/tips`);
         el.innerHTML = tips.length ? `<div class="table-wrap"><table><thead><tr><th>From</th><th>To</th><th class="r">Amount</th><th class="r">When</th></tr></thead><tbody>
           ${tips.map((t) => `<tr><td><a class="cell-user" href="#/u/${esc(t.from.wallet)}">${avatar(t.from, 'sm')} ${esc(nameOf(t.from))}</a></td><td><a class="cell-user" href="#/u/${esc(t.to.wallet)}">${avatar(t.to, 'sm')} ${esc(nameOf(t.to))}</a></td>
-            <td class="r"><b>${amount(t.near)} Ⓝ</b></td><td class="r"><a class="muted" href="${txUrl(t.txHash)}" target="_blank" rel="noopener">${ago(t.createdAt)}</a></td></tr>`).join('')}</tbody></table></div>` : empty('tip', 'No tips yet.');
+            <td class="r"><b>${amount(t.amount)} ${esc(t.symbol || '')}</b><div class="muted" style="font-size:12px">${t.usd ? usd(t.usd) : ''}</div></td><td class="r"><a class="muted" href="${txUrl(t.txHash)}" target="_blank" rel="noopener">${ago(t.createdAt)}</a></td></tr>`).join('')}</tbody></table></div>` : empty('tip', 'No tips yet.');
       }
     } catch (err) {
       el.innerHTML = empty('x', `Could not load: ${esc(err.message)}${err.status === 502 ? '<br><span style="font-size:13px">A NEAR data service is busy. Try again in a minute.</span>' : ''}`);
@@ -567,7 +630,10 @@
 
   async function pageSettings() {
     if (!state.me) {
-      setPage(`${mobileTop()}${composer()}`);
+      setPage(`${mobileTop()}${pageHead('Your profile', 'Your profile is built from your NEAR account.')}
+        <section class="card cta-band">${avatar({ wallet: 'you.near', name: '?' }, 'xl')}<h2 style="margin-top:16px">Connect to see your profile</h2>
+        <p>Holdings, profit, trade history and tips appear automatically once you connect. It is free and is not a transaction.</p>
+        <button class="btn primary lg" data-action="signin">${icon('wallet')} Connect NEAR wallet</button></section>`);
       return;
     }
     const { user } = await api('/me');
@@ -588,10 +654,10 @@
       ['wallet', 'Connect', 'Pick a NEAR wallet and sign a short message. It proves you own the account. No transaction, no fee.'],
       ['chart', 'Your profile fills itself', 'Holdings, profit and trade history are read from the NEAR blockchain. Nothing to upload, nothing to fake.'],
       ['repost', 'Post and follow', 'Share calls, reply, like and repost. Follow traders and see their buys and sells in your feed.'],
-      ['tip', 'Tip what helps you', 'Send NEAR straight to a post or profile. It goes wallet to wallet, and the site checks it on-chain.'],
+      ['tip', 'Tip what helps you', 'Send NEAR or any token straight to a post or profile. It goes wallet to wallet, and the site checks it on-chain. Posts show how many dollars they earned.'],
     ];
     const layers = [
-      ['On-chain (public, permanent)', ['Your NEAR account and its keys', 'Token balances and every swap you make', 'Tips: real NEAR transfers between accounts']],
+      ['On-chain (public, permanent)', ['Your NEAR account and its keys', 'Token balances and every swap you make', 'Tips: real NEAR and token transfers']],
       ['Off-chain (on our server)', ['Profile name, bio and X handle', 'Posts, replies, likes, reposts and follows', 'A cached copy of your trades, for speed']],
     ];
     const compare = [
@@ -601,7 +667,7 @@
       ['Profit and holdings on profile', '✓ from chain', '—', '—', '—'],
       ['Trades auto-posted to feed', '✓', '—', '—', '—'],
       ['Copy trading', '✓ you approve each swap', '—', '—', '—'],
-      ['Tips in native token', '✓ NEAR', 'via apps', 'via apps', 'via apps'],
+      ['Tips', '✓ NEAR or any token, $ shown on posts', 'via apps', 'via apps', 'via apps'],
       ['Posts stored', 'Server', 'On-chain (SocialDB)', 'Hubs (off-chain network)', 'Lens Chain + storage network'],
     ];
     const faq = [
@@ -634,6 +700,87 @@
           ${faq.map(([q, a]) => `<details class="faq"><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join('')}</section>
         <p class="foot-note" style="text-align:center">Not financial advice. Memecoins are extremely risky. Profits shown are past on-chain results.</p>
       </div>`);
+  }
+
+  // ------------------------------------------------------------------ landing (signed out)
+  async function pageLanding() {
+    document.body.classList.add('landing');
+    const features = [
+      ['chart', 'Real PnL, from the chain', 'Holdings, realized and unrealized profit and win rate, read from each NEAR account. No screenshots.'],
+      ['copytrade', 'Copy trades', 'Copy the best traders at your own size. Their buys and sells become one-tap swaps you approve.'],
+      ['coins', 'Tip in any token', 'Tip NEAR or any token in your wallet. Every post shows how many dollars it earned.'],
+      ['trades', 'Live trade feed', 'Members’ buys and sells show up in the feed as they happen.'],
+      ['trophy', 'Leaderboard', 'Traders ranked by real profit, with a 30-day copy return for each.'],
+      ['shield', 'Your keys stay yours', 'Sign in by signing a message. No transaction, no fee, no custody.'],
+    ];
+    setPage(`${mobileTop()}
+      <section class="card landing-hero">
+        <div>
+          <span class="kicker">${icon('spark', 'sm')} The social network for NEAR traders</span>
+          <h1>Share calls.<br><span class="grad-text">Prove the profit.</span></h1>
+          <p class="lead">Every profile on ${esc(state.config.appName)} shows real holdings, profit and trades straight from the NEAR blockchain. Follow, copy and tip the traders who actually win.</p>
+          <div class="cta-row">
+            <button class="btn primary lg" data-action="signin">${icon('wallet')} Connect NEAR wallet</button>
+            <a class="btn lg" href="#/leaderboard">${icon('trophy')} See top traders</a>
+          </div>
+          <div class="trust">Works with <span>Meteor</span><span>HOT</span><span>Intear</span><span>HERE</span><span>MyNearWallet</span></div>
+        </div>
+        <div class="mock" aria-label="Example profile">
+          <span class="mock-tag">Preview</span>
+          <div class="mock-card">
+            <div class="mock-head">${avatar({ wallet: 'degen.near', name: 'Dragon Rider' })}<span class="who"><b>Dragon Rider</b><span class="handle">@degen.near</span></span><span class="btn sm primary" style="pointer-events:none">${icon('copytrade', 'sm')} Copy</span></div>
+            <div class="mock-pnl">+$12,480.20</div>
+            <div class="mock-sub">Total profit · 71% win rate · 30 days</div>
+            <svg class="mock-chart" viewBox="0 0 300 86" preserveAspectRatio="none" aria-hidden="true">
+              <defs><linearGradient id="mg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--mint)" stop-opacity=".35"/><stop offset="1" stop-color="var(--mint)" stop-opacity="0"/></linearGradient></defs>
+              <path d="M0 70 L25 66 L50 72 L75 58 L100 61 L125 46 L150 50 L175 36 L200 41 L225 27 L250 31 L275 15 L300 9 L300 86 L0 86Z" fill="url(#mg)"/>
+              <path d="M0 70 L25 66 L50 72 L75 58 L100 61 L125 46 L150 50 L175 36 L200 41 L225 27 L250 31 L275 15 L300 9" fill="none" stroke="var(--mint)" stroke-width="2.5" vector-effect="non-scaling-stroke"/>
+            </svg>
+            <div class="mock-row"><span class="cell-token"><span class="token-icon sm">BLA</span> $BLACKDRAGON</span><b class="up">+$8,210</b></div>
+            <div class="mock-row"><span class="cell-token"><span class="token-icon sm">LON</span> $LONK</span><b class="up">+$3,940</b></div>
+            <div class="mock-row"><span class="cell-token"><span class="token-icon sm">NEK</span> $NEKO</span><b class="down">-$320</b></div>
+          </div>
+          <div class="mock-float tip">${icon('coins', 'sm')} $42.50 tipped</div>
+          <div class="mock-float copy">${icon('copytrade', 'sm')} 128 copiers</div>
+        </div>
+      </section>
+      <section class="card stat-strip" id="siteStats">
+        ${['Members', 'Trades tracked', 'Trading volume', 'Tipped to creators'].map((l) => `<div><b>—</b><span>${l}</span></div>`).join('')}
+      </section>
+      <div class="feature-grid">${features.map(([ic, t, d]) => `<section class="card feature-card"><div class="f-icon">${icon(ic)}</div><h3>${esc(t)}</h3><p>${esc(d)}</p></section>`).join('')}</div>
+      <div class="section-head"><h2>Live on ${esc(state.config.appName)}</h2><a href="#/trades">All trades →</a></div>
+      <div class="split">
+        <section class="card feed" id="landingFeed">${spinner}</section>
+        <div class="stack">
+          <section class="card pad"><h3 style="margin:0 0 10px;font:700 16px/1.2 var(--display)">Top traders</h3><div id="landingBoard">${spinner}</div></section>
+          <section class="card pad"><h3 style="margin:0 0 10px;font:700 16px/1.2 var(--display)">Latest trades</h3><div id="landingTrades">${spinner}</div></section>
+        </div>
+      </div>
+      <section class="card cta-band"><h2>Your trades already tell your story.</h2><p>Connect once. Your profile, profit and trade history fill in by themselves.</p><button class="btn primary lg" data-action="signin">${icon('wallet')} Connect NEAR wallet</button></section>`);
+
+    api('/stats').then((st) => {
+      const vals = [st.members.toLocaleString(), st.trades.toLocaleString(), compactUsd(st.volumeUsd), compactUsd(st.tipsUsd)];
+      document.querySelectorAll('#siteStats b').forEach((b, i) => { b.textContent = vals[i]; });
+    }).catch(() => {});
+    loadFeed('/feed?tab=latest', $('#landingFeed'), 'No posts yet. Connect your wallet and be the first to say gm.');
+    fillBoard($('#landingBoard'), 5);
+    fillTrades($('#landingTrades'), 6);
+  }
+
+  function fillBoard(el, n) {
+    return api('/leaderboard').then(({ rows }) => {
+      if (!el) return;
+      el.innerHTML = rows.slice(0, n).map((r, i) => `<a class="mini" href="#/u/${esc(r.user.wallet)}"><span class="rank ${i < 3 ? 'r' + (i + 1) : ''}">${i + 1}</span>${avatar(r.user, 'sm')}<span class="who"><b>${esc(nameOf(r.user))}</b></span><b class="num ${cls(r.totalUsd)}">${signedUsd(r.totalUsd)}</b></a>`).join('')
+        || `<div class="empty-cta"><b>The board is empty</b>The first trader to join takes #1.${state.me ? '' : '<br><button class="btn sm primary" style="margin-top:10px" data-action="signin">Claim #1</button>'}</div>`;
+    }).catch(() => { if (el) el.innerHTML = '<p class="muted" style="margin:0">Unavailable right now.</p>'; });
+  }
+
+  function fillTrades(el, n) {
+    return api('/trades/recent').then(({ trades }) => {
+      if (!el) return;
+      el.innerHTML = trades.slice(0, n).map((t) => `<a class="mini" href="${tokenLink(t.mint)}">${tokenIcon(t, 'sm')}<span class="who"><b>${esc(nameOf(t.user || { wallet: t.wallet }))}</b> <span class="badge ${t.side}">${t.side}</span> ${esc(tokenName(t))}</span><span class="muted">${ago(t.time)}</span></a>`).join('')
+        || '<div class="empty-cta"><b>No trades yet</b>Swaps by members appear here live.</div>';
+    }).catch(() => { if (el) el.innerHTML = '<p class="muted" style="margin:0">Unavailable right now.</p>'; });
   }
 
   // ------------------------------------------------------------------ copy trading
@@ -833,20 +980,17 @@
       <section class="card pad"><h3>Top traders</h3><div id="railBoard">${spinner}</div></section>
       <section class="card pad"><h3>Live trades</h3><div id="railTrades">${spinner}</div></section>
       <div class="rail-foot"><a href="#/about">About</a> · Not financial advice · Built on NEAR</div>`;
-    api('/leaderboard').then(({ rows }) => {
-      $('#railBoard').innerHTML = rows.slice(0, 5).map((r, i) => `<a class="mini" href="#/u/${esc(r.user.wallet)}"><span class="rank ${i < 3 ? 'r' + (i + 1) : ''}">${i + 1}</span>${avatar(r.user, 'sm')}<span class="who"><b>${esc(nameOf(r.user))}</b></span><b class="num ${cls(r.totalUsd)}">${signedUsd(r.totalUsd)}</b></a>`).join('') || '<p class="muted" style="margin:0">No traders yet.</p>';
-    }).catch(() => { $('#railBoard').innerHTML = '<p class="muted" style="margin:0">Unavailable right now.</p>'; });
-    api('/trades/recent').then(({ trades }) => {
-      $('#railTrades').innerHTML = trades.slice(0, 6).map((t) => `<a class="mini" href="#/u/${esc(t.wallet)}">${tokenIcon(t, 'sm')}<span class="who"><b>${esc(nameOf(t.user || { wallet: t.wallet }))}</b> <span class="badge ${t.side}">${t.side}</span> ${esc(tokenName(t))}</span><span class="muted">${ago(t.time)}</span></a>`).join('') || '<p class="muted" style="margin:0">No trades yet.</p>';
-    }).catch(() => { $('#railTrades').innerHTML = '<p class="muted" style="margin:0">Unavailable right now.</p>'; });
+    fillBoard($('#railBoard'), 5);
+    fillTrades($('#railTrades'), 6);
   }
 
   // ------------------------------------------------------------------ router
   async function route() {
     const [page = 'home', arg, sub] = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
     markNav();
+    document.body.classList.remove('landing');
     window.scrollTo(0, 0);
-    if (page === 'home') return pageHome('latest');
+    if (page === 'home') return state.me ? pageHome('latest') : pageLanding();
     if (page === 'following') return pageHome('following');
     if (page === 'trades') return pageTrades();
     if (page === 'leaderboard') return pageLeaderboard();
@@ -868,6 +1012,7 @@
     const a = el.dataset.action;
     const id = el.dataset.id;
     try {
+      if (a === 'theme') return toggleTheme();
       if (a === 'signin') return signIn();
       if (a === 'signout') return signOut();
       if (a === 'reply') return void (location.hash = `#/p/${id}`);
@@ -978,6 +1123,7 @@
     document.title = state.config.appName;
     $('#brandName').textContent = state.config.appName;
     renderChrome();
+    paintThemeButtons();
     renderRail();
     route();
   })();

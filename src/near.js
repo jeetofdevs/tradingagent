@@ -92,6 +92,13 @@ function createNear({ rpcUrl, fastnearUrl, nearblocksUrl, nearblocksKey = '', fe
       }
     },
 
+    // Read-only contract call; returns parsed JSON (or null).
+    async view(contract, method, args = {}) {
+      const r = await rpc('query', { request_type: 'call_function', finality: 'final', account_id: contract, method_name: method, args_base64: Buffer.from(JSON.stringify(args)).toString('base64') });
+      const text = Buffer.from(r.result).toString('utf8');
+      return text ? JSON.parse(text) : null;
+    },
+
     async blockTimeMs(blockHash) {
       const r = await rpc('block', { block_id: blockHash });
       return Number(BigInt(r.header.timestamp) / 1000000n);
@@ -176,4 +183,31 @@ function findNearTransfer(tx, from, to) {
   return Number(yocto) / YOCTO;
 }
 
-module.exports = { createNear, parseFtEvents, findNearTransfer, QUOTES, WNEAR, YOCTO, toUnits };
+// Raw amount of `token` moved from `from` to `to` by a successful
+// transaction, read from the token contract's NEP-141 ft_transfer events
+// (the token itself logs these only when the transfer really happened).
+function findFtTransfer(tx, token, from, to) {
+  if (!tx || !tx.transaction || !tx.status || tx.status.SuccessValue === undefined) return 0n;
+  if (tx.transaction.signer_id !== from) return 0n;
+  let total = 0n;
+  for (const r of tx.receipts_outcome || []) {
+    const o = r.outcome || {};
+    if (o.executor_id !== token || (o.status && o.status.Failure)) continue;
+    for (const log of o.logs || []) {
+      if (!log.startsWith('EVENT_JSON:')) continue;
+      let ev;
+      try {
+        ev = JSON.parse(log.slice('EVENT_JSON:'.length));
+      } catch {
+        continue;
+      }
+      if (ev.standard !== 'nep141' || ev.event !== 'ft_transfer') continue;
+      for (const d of ev.data || []) {
+        if (d.old_owner_id === from && d.new_owner_id === to) total += BigInt(d.amount || 0);
+      }
+    }
+  }
+  return total;
+}
+
+module.exports = { createNear, parseFtEvents, findNearTransfer, findFtTransfer, QUOTES, WNEAR, YOCTO, toUnits };

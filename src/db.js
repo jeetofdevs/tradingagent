@@ -70,7 +70,10 @@ CREATE TABLE IF NOT EXISTS tips (
   from_wallet TEXT NOT NULL,
   to_wallet TEXT NOT NULL,
   post_id INTEGER REFERENCES posts(id) ON DELETE SET NULL,
+  token TEXT NOT NULL DEFAULT 'near',
+  symbol TEXT NOT NULL DEFAULT 'NEAR',
   amount REAL NOT NULL,
+  usd REAL NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS tips_to ON tips(to_wallet);
@@ -111,6 +114,15 @@ CREATE TABLE IF NOT EXISTS tokens (
 );
 `;
 
+// Add columns that newer versions need to databases made by older ones.
+function migrate(db) {
+  const has = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
+  const add = (table, col, def) => { if (!has(table, col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`); };
+  add('tips', 'token', "TEXT NOT NULL DEFAULT 'near'");
+  add('tips', 'symbol', "TEXT NOT NULL DEFAULT 'NEAR'");
+  add('tips', 'usd', 'REAL NOT NULL DEFAULT 0');
+}
+
 function openDb(dataDir) {
   let file = ':memory:';
   if (dataDir) {
@@ -119,6 +131,7 @@ function openDb(dataDir) {
   }
   const db = new DatabaseSync(file);
   db.exec(SCHEMA);
+  migrate(db);
   return db;
 }
 

@@ -21,14 +21,14 @@ See [docs/SYSTEM.md](docs/SYSTEM.md) for how the system works: data flow, archit
 | Recent trades | Every member's buys and sells, newest first |
 | Feed | Latest and Following tabs; members' new trades auto-posted (can be turned off) |
 | Like, repost, reply, follow | Like X / Near Social |
-| Tip | NEAR sent account-to-account; the server checks it on-chain before it shows |
+| Tip | NEAR **or any NEP-141 token** sent account-to-account. Each post shows the dollar value it received. The server checks the transfer on-chain (token `ft_transfer` events) before it shows |
 | Copy trades | Copy a trader with your own amount per trade: their buys and sells become signals with a ready-made swap you approve in your wallet. Shows what copying made since you started, and a 30-day "what if" on every profile |
 | Token pages | Price, which members trade it, their average entry and profit, recent member trades, Buy/Sell links |
 | Leaderboard | Top-3 podium, profit, win rate and 30-day copy return per trader |
 | People | Search by name, X handle or account |
 | About | How it works, what is on-chain, safety, comparison with Farcaster, Lens and Near Social (BOS), FAQ |
 
-Dark and light mode, works on desktop and phone.
+Dark by default with a light-mode toggle; works on desktop and phone. Signed-out visitors get a landing page with live site stats.
 
 ## Run locally
 
