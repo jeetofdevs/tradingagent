@@ -69,9 +69,9 @@ with `npm run build:wallet`.
 | `NEARBLOCKS_API_URL` | `https://api.nearblocks.io` | Token transfer history (trades) |
 | `NEARBLOCKS_API_KEY` | (empty) | Optional, raises NearBlocks rate limits |
 | `MIN_TIP_NEAR` | `0.01` | Smallest tip accepted |
-| `TOKEN_CA` | `social-2.nearlytrade.near` | Official token contract, shown with a Copy button on the home page, sidebar and About page |
+| `TOKEN_CA` | (empty) | Official token contract, shown with a Copy button on the home page, sidebar and About page. Empty shows "Contract address coming soon" |
 | `X_HANDLE` | `nearsocialfun` | Official X account, linked next to the CA |
-| `TOKEN_TRADE_URL` | `https://nearly.trade/social-2.nearlytrade.near` | "Buy" button next to the CA. Tokens ending in `.nearlytrade.near` always open nearly.trade for Buy, Sell and copy trades |
+| `TOKEN_TRADE_URL` | (empty) | "Buy" button next to the CA; defaults to nearly.trade for `*.nearlytrade.near` contracts. Tokens ending in `.nearlytrade.near` always open nearly.trade for Buy, Sell and copy trades |
 | `COPY_SWAP_URL` | `https://app.ref.finance/#{from}\|{to}` | Swap page that copy signals open; `{from}`/`{to}` are token contracts or `near` |
 | `COPY_COST_PCT` | `1` | Swap cost per side used in copy simulations |
 | `SYNC_INTERVAL_SEC` | `300` | How often members are checked for new trades |

@@ -25,7 +25,7 @@ npm run dev    # in another terminal
 node scripts/render-brand.js --ca=YOUR_CONTRACT --url=https://YOUR-SITE
 ```
 
-`launch-post.png` in this repo is already rendered with `--ca=social-2.nearlytrade.near --url=x.com/nearsocialfun`.
+`launch-post.png` in this repo has no CA yet ("Contract address coming soon") and links `x.com/nearsocialfun`. After the new deploy, re-render it with `--ca=` and set `TOKEN_CA` on Railway.
 
 Always copy the CA from the deploy transaction, never retype it. Check the
 rendered image character by character before posting.
