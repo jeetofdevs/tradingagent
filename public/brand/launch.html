@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Near Social · launch post 1600x900</title><link rel="stylesheet" href="brand.css">
+<style>
+  .canvas { width: 1600px; height: 900px; }
+  .top { position: absolute; left: 90px; top: 70px; right: 90px; display: flex; justify-content: space-between; align-items: center; }
+  .top .wordmark { font-size: 36px; }
+  .top .wordmark img { width: 60px; height: 60px; }
+  .live { display: inline-flex; align-items: center; gap: 12px; font-size: 22px; font-weight: 800; color: var(--mint); letter-spacing: 0.08em; text-transform: uppercase; }
+  .live i { width: 14px; height: 14px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 0 8px rgba(0, 229, 153, 0.18); }
+  .main { position: absolute; left: 90px; top: 210px; width: 820px; }
+  h1 { font-size: 104px; line-height: 0.95; }
+  .sub { font-size: 30px; line-height: 1.35; color: var(--text-2); margin-top: 26px; font-weight: 500; }
+  .chips { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 34px; }
+  .chips .chip { font-size: 21px; }
+  .ca { position: absolute; left: 90px; right: 90px; bottom: 96px; display: flex; align-items: center; gap: 22px; padding: 22px 28px; border-radius: 22px; background: rgba(0, 229, 153, 0.07); border: 2px dashed rgba(0, 229, 153, 0.45); }
+  .ca .label { font: 700 30px/1 "Space Grotesk"; color: var(--bg); background: var(--mint); padding: 10px 18px; border-radius: 12px; }
+  .ca .value { font: 600 34px/1.1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ca .value.pending { color: var(--text-2); font-family: "Space Grotesk"; font-weight: 700; letter-spacing: 0.02em; }
+  .ca .url { font-size: 26px; font-weight: 700; color: var(--mint-2); }
+  .foot { position: absolute; left: 90px; right: 90px; bottom: 38px; font-size: 18px; color: var(--muted); display: flex; justify-content: space-between; }
+  .card { position: absolute; right: 90px; top: 190px; width: 520px; padding: 28px; }
+  .head { display: flex; align-items: center; gap: 14px; }
+  .head .avatar { width: 62px; height: 62px; font-size: 26px; background: linear-gradient(140deg, hsl(150 72% 46%), hsl(200 70% 38%)); }
+  .head b { font-size: 24px; display: block; }
+  .head div span { color: var(--muted); font-size: 17px; }
+  .head .avatar { color: #fff; }
+  .head .btn { color: #03130c; }
+  .head .btn { margin-left: auto; padding: 11px 18px; font-size: 17px; }
+  .pnl { font: 700 58px/1 "Space Grotesk"; color: var(--mint); margin: 22px 0 6px; letter-spacing: -0.02em; }
+  .muted { color: var(--muted); font-size: 18px; }
+  svg { display: block; width: 100%; height: 120px; margin: 16px 0 4px; }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-top: 1px solid rgba(160, 255, 210, 0.1); font-size: 20px; font-weight: 600; }
+  .row .tok { width: 34px; height: 34px; font-size: 12px; display: inline-grid; margin-right: 10px; vertical-align: middle; }
+  .tip { position: absolute; right: 470px; top: 140px; padding: 14px 20px; font-size: 22px; color: var(--amber); font-weight: 700; transform: rotate(-4deg); }
+</style></head>
+<body><div class="canvas" id="art">
+  <div class="top"><div class="wordmark"><img src="/logo.svg" alt="">Near Social</div><div class="live"><i></i>Now live on NEAR</div></div>
+  <div class="main">
+    <h1 class="display">Share calls.<br><span class="grad">Prove the profit.</span></h1>
+    <p class="sub">The social network where every NEAR trader’s holdings, profit and trades come straight from the chain.</p>
+    <div class="chips"><span class="chip">Real on-chain PnL</span><span class="chip">Copy trades</span><span class="chip">Tip any token</span></div>
+  </div>
+  <div class="panel card">
+    <div class="head"><span class="avatar">D</span><div><b>Dragon Rider</b><span>@degen.near</span></div><span class="btn">Copy</span></div>
+    <div class="pnl">+$12,480.20</div>
+    <div class="muted">Total profit · 71% win rate · 30 days</div>
+    <svg viewBox="0 0 300 86" preserveAspectRatio="none"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#00e599" stop-opacity=".4"/><stop offset="1" stop-color="#00e599" stop-opacity="0"/></linearGradient></defs>
+      <path d="M0 70 L25 66 L50 72 L75 58 L100 61 L125 46 L150 50 L175 36 L200 41 L225 27 L250 31 L275 15 L300 9 L300 86 L0 86Z" fill="url(#g)"/>
+      <path d="M0 70 L25 66 L50 72 L75 58 L100 61 L125 46 L150 50 L175 36 L200 41 L225 27 L250 31 L275 15 L300 9" fill="none" stroke="#00e599" stroke-width="3" vector-effect="non-scaling-stroke"/></svg>
+    <div class="row"><span><span class="tok">BLA</span>$BLACKDRAGON</span><span class="up">+$8,210</span></div>
+    <div class="row"><span><span class="tok">LON</span>$LONK</span><span class="up">+$3,940</span></div>
+  </div>
+  <div class="panel tip">$42.50 tipped by 6 people</div>
+  <div class="ca"><span class="label">CA</span><span class="value" id="ca"></span><span class="url" id="url"></span></div>
+  <div class="foot"><span>Example profile for illustration.</span><span>Community project · not affiliated with NEAR Foundation · not financial advice</span></div>
+</div>
+<script>
+  // Fill in ?ca=... and ?url=... (shown as plain text, never as HTML).
+  const q = new URLSearchParams(location.search);
+  const ca = (q.get('ca') || '').trim();
+  const el = document.getElementById('ca');
+  el.textContent = ca || 'Contract address coming soon';
+  if (!ca) el.classList.add('pending');
+  document.getElementById('url').textContent = (q.get('url') || '').replace(/^https?:\/\//, '');
+</script>
+</body></html>

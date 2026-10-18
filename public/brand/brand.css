@@ -1,0 +1,32 @@
+/* Shared style for Near Social social-media graphics (render at exact pixel size). */
+@font-face { font-family: Inter; font-weight: 400; src: url(fonts/inter-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: Inter; font-weight: 500; src: url(fonts/inter-latin-500-normal.woff2) format("woff2"); }
+@font-face { font-family: Inter; font-weight: 600; src: url(fonts/inter-latin-600-normal.woff2) format("woff2"); }
+@font-face { font-family: Inter; font-weight: 700; src: url(fonts/inter-latin-700-normal.woff2) format("woff2"); }
+@font-face { font-family: Inter; font-weight: 800; src: url(fonts/inter-latin-800-normal.woff2) format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-weight: 600; src: url(fonts/space-grotesk-latin-600-normal.woff2) format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-weight: 700; src: url(fonts/space-grotesk-latin-700-normal.woff2) format("woff2"); }
+
+:root { --bg: #06100b; --mint: #00e599; --mint-2: #5bffc0; --cyan: #2dd4ff; --violet: #8b5cf6; --pink: #ff4f8b; --amber: #ffb547; --text: #e9f5ef; --text-2: #b5c7be; --muted: #7d9188; --down: #ff5f7a; }
+* { box-sizing: border-box; margin: 0; }
+html, body { background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+.canvas { position: relative; overflow: hidden; background: var(--bg); }
+.canvas::before { content: ""; position: absolute; inset: 0; background:
+  radial-gradient(60% 70% at 15% 0%, rgba(0, 229, 153, 0.22), transparent 70%),
+  radial-gradient(50% 70% at 100% 20%, rgba(139, 92, 246, 0.20), transparent 70%),
+  radial-gradient(60% 60% at 60% 120%, rgba(45, 212, 255, 0.12), transparent 70%); }
+.canvas::after { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 1px 1px, rgba(160, 255, 210, 0.09) 1.2px, transparent 1.8px) 0 0 / 26px 26px; mask-image: radial-gradient(80% 80% at 50% 50%, #000, transparent); }
+.canvas > * { position: relative; z-index: 1; }
+.display { font-family: "Space Grotesk", Inter, sans-serif; font-weight: 700; letter-spacing: -0.035em; }
+.grad { background: linear-gradient(100deg, var(--mint-2), var(--mint) 45%, var(--cyan)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.wordmark { display: flex; align-items: center; gap: 14px; font-family: "Space Grotesk", sans-serif; font-weight: 700; letter-spacing: -0.02em; }
+.panel { background: linear-gradient(160deg, rgba(22, 39, 30, 0.95), rgba(12, 23, 18, 0.95)); border: 1px solid rgba(160, 255, 210, 0.16); border-radius: 26px; box-shadow: 0 40px 90px -40px rgba(0, 0, 0, 0.9); }
+.chip { display: inline-flex; align-items: center; gap: 10px; padding: 10px 18px; border-radius: 999px; background: rgba(0, 229, 153, 0.10); border: 1px solid rgba(0, 229, 153, 0.25); color: var(--mint-2); font-weight: 700; }
+.avatar { border-radius: 50%; display: grid; place-items: center; color: #fff; font-family: "Space Grotesk", sans-serif; font-weight: 700; }
+.up { color: var(--mint); }
+.down { color: var(--down); }
+.badge { display: inline-block; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; border-radius: 999px; }
+.badge.buy { background: rgba(0, 229, 153, 0.16); color: var(--mint); }
+.badge.sell { background: rgba(255, 95, 122, 0.16); color: var(--down); }
+.btn { display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; font-weight: 700; background: linear-gradient(135deg, var(--mint-2), var(--mint)); color: #03130c; }
+.tok { border-radius: 50%; display: grid; place-items: center; background: rgba(160, 255, 210, 0.1); color: var(--text-2); font-family: "Space Grotesk", sans-serif; font-weight: 700; }
