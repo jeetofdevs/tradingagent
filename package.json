@@ -1,14 +1,15 @@
 {
   "name": "near-social",
   "version": "1.0.0",
-  "description": "Near Social: the social network for Solana traders, with on-chain holdings, profit and trade history on every profile.",
+  "description": "Near Social: the social network for NEAR traders, with on-chain holdings, profit and trade history on every profile.",
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "seed": "node scripts/seed-demo.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "build:wallet": "esbuild wallet/entry.js --bundle --minify --format=iife --global-name=NearWallet --platform=browser --define:global=globalThis --inject:wallet/shims.js --alias:crypto=./wallet/crypto-shim.js --alias:util=./wallet/util-shim.js --legal-comments=none --outfile=public/vendor/near-wallet.js"
   },
   "engines": {
     "node": ">=22.13"
@@ -16,5 +17,14 @@
   "license": "MIT",
   "dependencies": {
     "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@near-wallet-selector/core": "^10.1.4",
+    "@near-wallet-selector/here-wallet": "^10.1.4",
+    "@near-wallet-selector/hot-wallet": "^10.1.4",
+    "@near-wallet-selector/intear-wallet": "^10.1.4",
+    "@near-wallet-selector/meteor-wallet": "^10.1.4",
+    "@near-wallet-selector/my-near-wallet": "^10.1.4",
+    "esbuild": "^0.28.2"
   }
 }

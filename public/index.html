@@ -4,27 +4,25 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Near Social</title>
-<meta name="description" content="The social network for Solana traders. Every profile shows real on-chain holdings, profit and trade history.">
+<meta name="description" content="The social network for NEAR traders. Every profile shows real on-chain holdings, profit and trade history.">
+<meta name="theme-color" content="#06100B">
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap">
 <link rel="stylesheet" href="/app.css">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%239945FF'/%3E%3Cstop offset='1' stop-color='%2314F195'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='14' fill='url(%23g)'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23fff'/%3E%3C/svg%3E">
 </head>
 <body>
+<div class="bg-glow" aria-hidden="true"></div>
 <div class="layout">
   <aside class="sidebar" aria-label="Main">
-    <a class="brand" href="#/"><span class="logo" aria-hidden="true"></span><span id="brandName">Near Social</span></a>
-    <nav class="nav" id="nav">
-      <a href="#/" data-route="home"><span class="ico">⌂</span><span>Home</span></a>
-      <a href="#/trades" data-route="trades"><span class="ico">⇄</span><span>Recent trades</span></a>
-      <a href="#/leaderboard" data-route="leaderboard"><span class="ico">★</span><span>Leaderboard</span></a>
-      <a href="#/people" data-route="people"><span class="ico">◎</span><span>People</span></a>
-      <a href="#/me" data-route="me" id="navMe"><span class="ico">☺</span><span>Profile</span></a>
-      <a href="#/roadmap" data-route="roadmap"><span class="ico">↗</span><span>Roadmap</span></a>
-    </nav>
+    <a class="brand" href="#/"><img src="/logo.svg" alt="" width="36" height="36"><span id="brandName">Near Social</span></a>
+    <nav class="nav" id="nav"></nav>
     <div class="account" id="account"></div>
   </aside>
 
   <main class="main" id="main" tabindex="-1">
-    <div class="loading">Loading…</div>
+    <div class="loading"><span class="spinner"></span></div>
   </main>
 
   <aside class="rail" aria-label="Highlights" id="rail"></aside>

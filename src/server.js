@@ -3,7 +3,7 @@ const express = require('express');
 const { loadConfig } = require('./config');
 const { openDb } = require('./db');
 const { createAuth } = require('./auth');
-const { createRpc } = require('./solana');
+const { createNear } = require('./near');
 const { createPriceSource } = require('./prices');
 const { createPortfolio } = require('./portfolio');
 const { createSyncer } = require('./sync');
@@ -13,10 +13,10 @@ const cfg = loadConfig();
 const db = openDb(cfg.dataDir);
 if (!cfg.sessionSecret) console.warn('SESSION_SECRET is not set: users will be logged out on every restart.');
 
-const auth = createAuth({ db, appName: cfg.appName, secret: cfg.sessionSecret });
-const rpc = createRpc({ url: cfg.solanaRpcUrl });
-const portfolio = createPortfolio({ db, rpc, quotes: createPriceSource({ chain: 'solana' }) });
-const syncer = createSyncer({ db, rpc, portfolio, cfg });
+const near = createNear({ rpcUrl: cfg.nearRpcUrl, fastnearUrl: cfg.fastnearUrl, nearblocksUrl: cfg.nearblocksUrl, nearblocksKey: cfg.nearblocksKey });
+const auth = createAuth({ db, near, appName: cfg.appName, secret: cfg.sessionSecret });
+const portfolio = createPortfolio({ db, near, quotes: createPriceSource() });
+const syncer = createSyncer({ db, near, portfolio, cfg });
 
 const app = express();
 app.disable('x-powered-by');
@@ -29,7 +29,7 @@ app.use((_req, res, next) => {
 });
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
-app.use('/api', createSocialRouter({ db, auth, rpc, portfolio, syncer, cfg }));
+app.use('/api', createSocialRouter({ db, auth, near, portfolio, syncer, cfg }));
 
 const server = app.listen(cfg.port, () => {
   console.log(`${cfg.appName} on port ${cfg.port}`);

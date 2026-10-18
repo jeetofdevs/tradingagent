@@ -1,14 +1,14 @@
 // HTTP API for the social layer.
 
 const express = require('express');
-const { isWallet } = require('./auth');
-const { findSolTransfer, LAMPORTS } = require('./solana');
+const { isAccountId } = require('./auth');
+const { findNearTransfer } = require('./near');
 
 const COOKIE = 'sid';
 const MAX_POST = 500;
 const PAGE = 20;
 
-function createSocialRouter({ db, auth, rpc, portfolio, syncer, cfg, now = () => Date.now() }) {
+function createSocialRouter({ db, auth, near, portfolio, syncer, cfg, now = () => Date.now() }) {
   const router = express.Router();
   router.use(express.json({ limit: '20kb' }));
 
@@ -36,7 +36,7 @@ function createSocialRouter({ db, auth, rpc, portfolio, syncer, cfg, now = () =>
   function requireUser(req, res, next) {
     if (req.get('x-requested-with') !== 'app') return fail(res, 403, 'Missing request header');
     if (!req.wallet) return fail(res, 401, 'Connect your wallet first');
-    if (!getUser.get(req.wallet)) return fail(res, 401, 'Wallet is not registered');
+    if (!getUser.get(req.wallet)) return fail(res, 401, 'Account is not registered');
     next();
   }
 
@@ -84,7 +84,7 @@ function createSocialRouter({ db, auth, rpc, portfolio, syncer, cfg, now = () =>
     const likes = count('SELECT post_id id, COUNT(*) n FROM likes WHERE post_id IN ($IDS) GROUP BY post_id');
     const reposts = count("SELECT ref_post_id id, COUNT(*) n FROM posts WHERE kind = 'repost' AND deleted = 0 AND ref_post_id IN ($IDS) GROUP BY ref_post_id");
     const replies = count("SELECT ref_post_id id, COUNT(*) n FROM posts WHERE kind = 'reply' AND deleted = 0 AND ref_post_id IN ($IDS) GROUP BY ref_post_id");
-    const tips = count('SELECT post_id id, SUM(lamports) n FROM tips WHERE post_id IN ($IDS) GROUP BY post_id');
+    const tips = count('SELECT post_id id, SUM(amount) n FROM tips WHERE post_id IN ($IDS) GROUP BY post_id');
     const mine = (sql) => (viewer ? new Set(db.prepare(sql.replace('$IDS', marks)).all(viewer, ...list).map((r) => r.id)) : new Set());
     const liked = mine('SELECT post_id id FROM likes WHERE wallet = ? AND post_id IN ($IDS)');
     const reposted = mine("SELECT ref_post_id id FROM posts WHERE author = ? AND kind = 'repost' AND deleted = 0 AND ref_post_id IN ($IDS)");
@@ -97,7 +97,7 @@ function createSocialRouter({ db, auth, rpc, portfolio, syncer, cfg, now = () =>
     const tradeOf = (key) => {
       if (!key) return null;
       const idx = key.lastIndexOf(':');
-      const t = db.prepare(`SELECT t.*, k.symbol, k.name FROM trades t LEFT JOIN tokens k ON k.mint = t.mint
+      const t = db.prepare(`SELECT t.*, k.symbol, k.name, k.icon FROM trades t LEFT JOIN tokens k ON k.mint = t.mint
         WHERE t.signature = ? AND t.mint = ?`).get(key.slice(0, idx), key.slice(idx + 1));
       return t ? tradeOut(t) : null;
     };
@@ -112,7 +112,7 @@ function createSocialRouter({ db, auth, rpc, portfolio, syncer, cfg, now = () =>
       likes: likes.get(p.id) || 0,
       reposts: reposts.get(p.id) || 0,
       replies: replies.get(p.id) || 0,
-      tipsSol: (tips.get(p.id) || 0) / LAMPORTS,
+      tipsNear: tips.get(p.id) || 0,
       liked: liked.has(p.id),
       reposted: reposted.has(p.id),
       mine: viewer === p.author,
@@ -138,6 +138,7 @@ function createSocialRouter({ db, auth, rpc, portfolio, syncer, cfg, now = () =>
       mint: t.mint,
       symbol: t.symbol || '',
       name: t.name || '',
+      icon: t.icon || null,
       side: t.side,
       tokenAmount: t.token_amount,
       quoteSymbol: t.quote_symbol,
@@ -158,33 +159,34 @@ function createSocialRouter({ db, auth, rpc, portfolio, syncer, cfg, now = () =>
   // ---- config & auth -------------------------------------------------------
 
   router.get('/config', (_req, res) => {
-    res.json({ appName: cfg.appName, minTipSol: cfg.minTipSol, cluster: 'mainnet-beta' });
+    res.json({ appName: cfg.appName, minTipNear: cfg.minTipNear, network: 'mainnet' });
   });
 
   router.post('/auth/challenge', (req, res) => {
-    const wallet = String(req.body?.wallet || '');
     if (!limit(`challenge:${req.ip}`, 20, 60000)) return fail(res, 429, 'Too many attempts, wait a minute');
-    try {
-      res.json(auth.challenge(wallet, req.get('host') || 'this site'));
-    } catch (err) {
-      fail(res, 400, err.message);
-    }
+    res.json(auth.challenge(req.get('host') || cfg.appName));
   });
 
-  router.post('/auth/verify', (req, res) => {
+  router.post('/auth/verify', wrap(async (req, res) => {
     if (req.get('x-requested-with') !== 'app') return fail(res, 403, 'Missing request header');
     let wallet;
     try {
-      wallet = auth.verify(req.body?.nonce, req.body?.signature);
+      wallet = await auth.verify({
+        nonce: req.body?.nonce,
+        accountId: String(req.body?.accountId || ''),
+        publicKey: String(req.body?.publicKey || ''),
+        signature: String(req.body?.signature || ''),
+        callbackUrl: req.body?.callbackUrl,
+      });
     } catch (err) {
       return fail(res, 401, err.message);
     }
     const isNew = insertUser.run(wallet, now()).changes > 0;
     const secure = req.secure || req.get('x-forwarded-proto') === 'https';
     res.setHeader('Set-Cookie', `${COOKIE}=${encodeURIComponent(auth.issueSession(wallet))}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(auth.sessionMaxAgeMs / 1000)}${secure ? '; Secure' : ''}`);
-    if (isNew) syncer.syncWallet(wallet).catch(() => {}); // backfill trade history
+    if (isNew) syncer.syncAccount(wallet).catch(() => {}); // backfill trade history
     res.json({ user: publicUser(getUser.get(wallet)), isNew });
-  });
+  }));
 
   router.post('/auth/logout', (_req, res) => {
     res.setHeader('Set-Cookie', `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
@@ -284,7 +286,7 @@ function createSocialRouter({ db, auth, rpc, portfolio, syncer, cfg, now = () =>
   // ---- users ---------------------------------------------------------------
 
   function requireWalletParam(req, res, next) {
-    if (!isWallet(req.params.wallet)) return fail(res, 400, 'Not a valid wallet address');
+    if (!isAccountId(req.params.wallet)) return fail(res, 400, 'Not a valid NEAR account');
     next();
   }
 
@@ -308,7 +310,7 @@ function createSocialRouter({ db, auth, rpc, portfolio, syncer, cfg, now = () =>
       following: one('SELECT COUNT(*) n FROM follows WHERE follower = ?', w),
       posts: one("SELECT COUNT(*) n FROM posts WHERE author = ? AND deleted = 0 AND kind IN ('post', 'trade')", w),
       trades: one('SELECT COUNT(*) n FROM trades WHERE wallet = ?', w),
-      tipsReceivedSol: one('SELECT COALESCE(SUM(lamports), 0) n FROM tips WHERE to_wallet = ?', w) / LAMPORTS,
+      tipsReceivedNear: one('SELECT COALESCE(SUM(amount), 0) n FROM tips WHERE to_wallet = ?', w),
       isFollowing: req.wallet ? Boolean(db.prepare('SELECT 1 FROM follows WHERE follower = ? AND followee = ?').get(req.wallet, w)) : false,
       lastSyncAt: u.last_sync_at,
       isMe: req.wallet === w,
@@ -352,7 +354,7 @@ function createSocialRouter({ db, auth, rpc, portfolio, syncer, cfg, now = () =>
 
   router.get('/users/:wallet/trades', requireWalletParam, (req, res) => {
     const before = Number(req.query.before) || Number.MAX_SAFE_INTEGER;
-    const rows = db.prepare(`SELECT t.*, k.symbol, k.name FROM trades t LEFT JOIN tokens k ON k.mint = t.mint
+    const rows = db.prepare(`SELECT t.*, k.symbol, k.name, k.icon FROM trades t LEFT JOIN tokens k ON k.mint = t.mint
       WHERE t.wallet = ? AND t.block_time < ? ORDER BY t.block_time DESC LIMIT 50`).all(req.params.wallet, before);
     res.json({ trades: rows.map(tradeOut), next: rows.length === 50 ? rows[rows.length - 1].block_time : null });
   });
@@ -360,7 +362,7 @@ function createSocialRouter({ db, auth, rpc, portfolio, syncer, cfg, now = () =>
   router.post('/users/:wallet/sync', requireWalletParam, requireUser, wrap(async (req, res) => {
     if (req.params.wallet !== req.wallet) return fail(res, 403, 'You can only refresh your own wallet');
     if (!limit(`sync:${req.wallet}`, 1, 60000)) return fail(res, 429, 'You can refresh once a minute');
-    const r = await syncer.syncWallet(req.wallet);
+    const r = await syncer.syncAccount(req.wallet);
     await portfolio.holdings(req.wallet, { fresh: true }).catch(() => {});
     res.json(r);
   }));
@@ -369,7 +371,7 @@ function createSocialRouter({ db, auth, rpc, portfolio, syncer, cfg, now = () =>
 
   router.get('/trades/recent', (req, res) => {
     const before = Number(req.query.before) || Number.MAX_SAFE_INTEGER;
-    const rows = db.prepare(`SELECT t.*, k.symbol, k.name FROM trades t LEFT JOIN tokens k ON k.mint = t.mint
+    const rows = db.prepare(`SELECT t.*, k.symbol, k.name, k.icon FROM trades t LEFT JOIN tokens k ON k.mint = t.mint
       WHERE t.block_time < ? ORDER BY t.block_time DESC LIMIT 50`).all(before);
     const users = new Map();
     res.json({
@@ -402,35 +404,34 @@ function createSocialRouter({ db, auth, rpc, portfolio, syncer, cfg, now = () =>
 
   // ---- tips ------------------------------------------------------------------
 
-  router.get('/solana/blockhash', requireUser, wrap(async (_req, res) => {
-    res.json(await rpc.getLatestBlockhash());
-  }));
-
-  // The browser sends SOL with the user's wallet, then reports the
-  // signature. The server checks the transfer on-chain before recording it.
+  // The browser sends NEAR with the user's wallet, then reports the
+  // transaction hash. The server checks the transfer on-chain first.
   router.post('/tips', requireUser, wrap(async (req, res) => {
-    const signature = String(req.body?.signature || '');
+    const hash = String(req.body?.txHash || '');
     const to = String(req.body?.to || '');
-    if (!/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(signature)) return fail(res, 400, 'Bad transaction signature');
-    if (!getUser.get(to)) return fail(res, 404, 'Tips can only go to registered wallets');
+    if (!/^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(hash)) return fail(res, 400, 'Bad transaction hash');
+    if (!getUser.get(to)) return fail(res, 404, 'Tips can only go to registered accounts');
     if (to === req.wallet) return fail(res, 400, 'You cannot tip yourself');
     let postId = null;
     if (req.body?.postId != null) {
       const p = getPost.get(Number(req.body.postId));
-      if (!p || p.author !== to) return fail(res, 400, 'That post does not belong to this wallet');
+      if (!p || p.author !== to) return fail(res, 400, 'That post does not belong to this account');
       postId = p.id;
     }
-    if (db.prepare('SELECT 1 FROM tips WHERE signature = ?').get(signature)) return fail(res, 409, 'This tip is already recorded');
+    if (db.prepare('SELECT 1 FROM tips WHERE signature = ?').get(hash)) return fail(res, 409, 'This tip is already recorded');
 
-    const tx = await rpc.getTransaction(signature);
-    if (!tx) return res.status(202).json({ pending: true, message: 'Waiting for the transaction to confirm' });
-    if (tx.meta?.err) return fail(res, 400, 'That transaction failed on-chain');
-    if (tx.blockTime && now() - tx.blockTime * 1000 > 60 * 60000) return fail(res, 400, 'That transaction is too old to count as a tip');
-    const lamports = findSolTransfer(tx, req.wallet, to);
-    if (lamports < cfg.minTipSol * LAMPORTS) return fail(res, 400, `No SOL transfer of at least ${cfg.minTipSol} SOL from you to them in that transaction`);
-    db.prepare('INSERT INTO tips (signature, from_wallet, to_wallet, post_id, lamports, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(signature, req.wallet, to, postId, lamports, now());
-    res.json({ ok: true, sol: lamports / LAMPORTS });
+    const tx = await near.txStatus(hash, req.wallet);
+    if (!tx) return res.status(202).json({ pending: true, message: 'Waiting for the transaction to finish' });
+    const amount = findNearTransfer(tx, req.wallet, to);
+    if (amount < cfg.minTipNear) return fail(res, 400, `No transfer of at least ${cfg.minTipNear} NEAR from you to them in that transaction`);
+    const blockHash = tx.transaction_outcome?.block_hash;
+    if (blockHash) {
+      const t = await near.blockTimeMs(blockHash);
+      if (now() - t > 60 * 60000) return fail(res, 400, 'That transaction is too old to count as a tip');
+    }
+    db.prepare('INSERT INTO tips (signature, from_wallet, to_wallet, post_id, amount, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(hash, req.wallet, to, postId, amount, now());
+    res.json({ ok: true, near: amount });
   }));
 
   router.get('/users/:wallet/tips', requireWalletParam, (req, res) => {
@@ -438,11 +439,11 @@ function createSocialRouter({ db, auth, rpc, portfolio, syncer, cfg, now = () =>
       .all(req.params.wallet, req.params.wallet);
     res.json({
       tips: rows.map((t) => ({
-        signature: t.signature,
+        txHash: t.signature,
         from: publicUser(getUser.get(t.from_wallet)) || { wallet: t.from_wallet },
         to: publicUser(getUser.get(t.to_wallet)) || { wallet: t.to_wallet },
         postId: t.post_id,
-        sol: t.lamports / LAMPORTS,
+        near: t.amount,
         createdAt: t.created_at,
       })),
     });

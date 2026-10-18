@@ -1,77 +1,79 @@
-// Reads registered wallets' transactions from the chain and records swaps
-// as trades. New trades (after a wallet registers) become feed posts when
-// the user has trade sharing on. Older history is backfilled quietly.
+// Reads registered accounts' token transfers from NearBlocks and records
+// swaps as trades. Trades after an account joins become feed posts (if the
+// user shares trades). History from before joining is backfilled quietly.
 
-const { parseSwaps } = require('./solana');
+const { parseFtEvents } = require('./near');
 
-function createSyncer({ db, rpc, portfolio, cfg, now = () => Date.now(), log = console }) {
+const MAX_PAGES = 3;
+
+function createSyncer({ db, near, portfolio, cfg, now = () => Date.now(), log = console }) {
   const getUser = db.prepare('SELECT * FROM users WHERE wallet = ?');
   const dueUsers = db.prepare('SELECT wallet FROM users ORDER BY COALESCE(last_sync_at, 0) ASC LIMIT ?');
   const insertTrade = db.prepare(`INSERT OR IGNORE INTO trades
     (signature, wallet, mint, side, token_amount, quote_symbol, quote_amount, value_usd, price_usd, block_time)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const insertPost = db.prepare(`INSERT INTO posts (author, kind, body, trade_key, created_at) VALUES (?, 'trade', '', ?, ?)`);
-  const markSynced = db.prepare('UPDATE users SET last_sync_at = ?, newest_signature = COALESCE(?, newest_signature), backfilled = 1 WHERE wallet = ?');
+  const markSynced = db.prepare('UPDATE users SET last_sync_at = ?, last_event_ts = MAX(last_event_ts, ?), backfilled = 1 WHERE wallet = ?');
 
   const running = new Set();
 
-  async function syncWallet(wallet) {
-    if (running.has(wallet)) return { skipped: true };
-    running.add(wallet);
+  async function syncAccount(accountId) {
+    if (running.has(accountId)) return { skipped: true };
+    running.add(accountId);
     try {
-      const user = getUser.get(wallet);
-      if (!user) throw new Error('Wallet is not registered');
+      const user = getUser.get(accountId);
+      if (!user) throw new Error('Account is not registered');
       const firstSync = !user.backfilled;
 
-      const sigs = firstSync
-        ? await rpc.getSignatures(wallet, { limit: cfg.syncBackfillTx })
-        : await rpc.getSignatures(wallet, { limit: 100, until: user.newest_signature || undefined });
+      // Newest events first; stop once we reach what we already saw.
+      const events = [];
+      let cursor = null;
+      for (let page = 0; page < (firstSync ? 1 : MAX_PAGES); page += 1) {
+        const r = await near.ftEvents(accountId, { cursor, perPage: firstSync ? cfg.syncBackfillEvents : 100 });
+        events.push(...r.events);
+        const oldest = r.events[r.events.length - 1];
+        const oldestMs = oldest ? Number(BigInt(oldest.block_timestamp || 0) / 1000000n) : 0;
+        if (!r.cursor || r.events.length === 0 || oldestMs <= user.last_event_ts) break;
+        cursor = r.cursor;
+      }
 
-      let solUsd = null;
+      let nearUsd = null;
       const quoteUsd = async (symbol) => {
-        if (symbol !== 'SOL') return 1; // USDC / USDT
-        if (solUsd === null) solUsd = await portfolio.solPriceUsd();
-        return solUsd;
+        if (symbol !== 'NEAR') return 1; // stablecoins
+        if (nearUsd === null) nearUsd = await portfolio.nearPriceUsd();
+        return nearUsd;
       };
 
       let added = 0;
-      const newMints = new Set();
-      // Oldest first, so feed posts come out in order.
-      for (const s of [...sigs].reverse()) {
-        if (s.err) continue;
-        const tx = await rpc.getTransaction(s.signature);
-        for (const trade of parseSwaps(tx, wallet)) {
-          const valueUsd = trade.quoteAmount * (await quoteUsd(trade.quoteSymbol));
-          const result = insertTrade.run(
-            trade.signature, wallet, trade.mint, trade.side, trade.tokenAmount, trade.quoteSymbol,
-            trade.quoteAmount, valueUsd, valueUsd / trade.tokenAmount, trade.blockTime || now(),
-          );
-          if (result.changes === 0) continue;
-          added += 1;
-          newMints.add(trade.mint);
-          if (!firstSync && user.share_trades) {
-            insertPost.run(wallet, `${trade.signature}:${trade.mint}`, trade.blockTime || now());
-          }
-        }
+      let newest = 0;
+      const trades = parseFtEvents(events, accountId).sort((a, b) => a.blockTime - b.blockTime);
+      for (const t of trades) {
+        newest = Math.max(newest, t.blockTime);
+        if (t.blockTime <= user.last_event_ts) continue;
+        portfolio.rememberToken(t.mint, { symbol: t.symbol, name: t.name, decimals: t.decimals });
+        const valueUsd = t.quoteAmount * (await quoteUsd(t.quoteSymbol));
+        const r = insertTrade.run(t.signature, accountId, t.mint, t.side, t.tokenAmount, t.quoteSymbol, t.quoteAmount, valueUsd, valueUsd / t.tokenAmount, t.blockTime || now());
+        if (r.changes === 0) continue;
+        added += 1;
+        if (!firstSync && user.share_trades) insertPost.run(accountId, `${t.signature}:${t.mint}`, t.blockTime || now());
       }
-      // Fetch names and symbols for new tokens.
-      if (newMints.size) await portfolio.prices([...newMints]).catch(() => {});
-      markSynced.run(now(), sigs[0]?.signature || null, wallet);
-      return { added, scanned: sigs.length, firstSync };
+      for (const e of events) newest = Math.max(newest, Number(BigInt(e.block_timestamp || 0) / 1000000n));
+      markSynced.run(now(), newest, accountId);
+      return { added, scanned: events.length, firstSync };
     } finally {
-      running.delete(wallet);
+      running.delete(accountId);
     }
   }
 
   let timer = null;
   async function loop() {
     try {
-      for (const { wallet } of dueUsers.all(cfg.syncWalletsPerRound)) {
+      for (const { wallet } of dueUsers.all(cfg.syncAccountsPerRound)) {
         try {
-          const r = await syncWallet(wallet);
-          if (r.added) log.log(`sync ${wallet.slice(0, 6)}: +${r.added} trades`);
+          const r = await syncAccount(wallet);
+          if (r.added) log.log(`sync ${wallet}: +${r.added} trades`);
         } catch (err) {
-          log.error(`sync ${wallet.slice(0, 6)}: ${err.message}`);
+          log.error(`sync ${wallet}: ${err.message}`);
         }
       }
     } finally {
@@ -80,7 +82,7 @@ function createSyncer({ db, rpc, portfolio, cfg, now = () => Date.now(), log = c
   }
 
   return {
-    syncWallet,
+    syncAccount,
     start() {
       timer = setTimeout(loop, 5000);
     },

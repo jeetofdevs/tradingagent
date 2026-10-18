@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Near Social">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0E2A1F"/>
+      <stop offset="1" stop-color="#03130C"/>
+    </linearGradient>
+    <linearGradient id="mint" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5BFFC0"/>
+      <stop offset="1" stop-color="#00D98B"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="1" r="0.8">
+      <stop offset="0" stop-color="#00E599" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#00E599" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#bg)"/>
+  <rect width="64" height="64" rx="16" fill="url(#glow)"/>
+  <!-- chat bubble -->
+  <path d="M19 13h26a9 9 0 0 1 9 9v16a9 9 0 0 1-9 9H28l-9.5 7.2c-1 .8-2.5 0-2.5-1.3V47.2A9 9 0 0 1 10 38.6V22a9 9 0 0 1 9-9z" fill="url(#mint)"/>
+  <!-- N: two rounded stems joined by a diagonal -->
+  <path d="M24 38V22.5L40 37.5V22" fill="none" stroke="#04150D" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- notification dot -->
+  <circle cx="51" cy="14" r="7" fill="#FF4F8B" stroke="#03130C" stroke-width="3"/>
+</svg>

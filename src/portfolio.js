@@ -1,110 +1,126 @@
-// What a wallet holds right now, and how its trades have done.
+// What a NEAR account holds right now, and how its trades have done.
 //
-// Holdings come straight from the chain (SOL + every SPL token account).
-// Profit uses the trades this site has recorded for the wallet, with
-// average-cost accounting per token:
+// Holdings: native NEAR (RPC) + every fungible token (FastNEAR), priced in USD.
+// Profit: average-cost accounting per token on the swaps this site recorded:
 //   realized   = sell proceeds - average cost of the tokens sold
 //   unrealized = value of tokens still held - their average cost
-// Trades made before the site started tracking a wallet are only partly
-// known, so the numbers are labelled as estimates.
+// Sells of tokens bought before the account joined are flagged as estimates.
 
-const { WSOL } = require('./solana');
+const { WNEAR, toUnits } = require('./near');
 
 const PRICE_TTL_MS = 60000;
 const HOLDINGS_TTL_MS = 2 * 60000;
+const MAX_ICON = 20000;
 
-function createPortfolio({ db, rpc, quotes, now = () => Date.now() }) {
-  const priceCache = new Map(); // mint -> { t, snap }
-  const holdingsCache = new Map(); // wallet -> { t, value }
+// Only show token icons that cannot run code: images as data URIs or https.
+function safeIcon(icon) {
+  if (typeof icon !== 'string' || icon.length > MAX_ICON) return null;
+  if (/^data:image\/(png|jpeg|jpg|gif|webp|svg\+xml)[;,]/i.test(icon) || /^https:\/\//i.test(icon)) return icon;
+  return null;
+}
 
-  const upsertToken = db.prepare(`INSERT INTO tokens (mint, symbol, name, updated_at) VALUES (?, ?, ?, ?)
-    ON CONFLICT(mint) DO UPDATE SET symbol = excluded.symbol, name = excluded.name, updated_at = excluded.updated_at`);
+function createPortfolio({ db, near, quotes, now = () => Date.now() }) {
+  const priceCache = new Map();
+  const holdingsCache = new Map();
+
+  const getToken = db.prepare('SELECT * FROM tokens WHERE mint = ?');
+  const upsertToken = db.prepare(`INSERT INTO tokens (mint, symbol, name, decimals, icon, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(mint) DO UPDATE SET
+      symbol = CASE WHEN excluded.symbol != '' THEN excluded.symbol ELSE tokens.symbol END,
+      name = CASE WHEN excluded.name != '' THEN excluded.name ELSE tokens.name END,
+      decimals = COALESCE(excluded.decimals, tokens.decimals),
+      icon = COALESCE(excluded.icon, tokens.icon),
+      updated_at = excluded.updated_at`);
   const tradesFor = db.prepare('SELECT * FROM trades WHERE wallet = ? ORDER BY block_time ASC, signature ASC');
-  const tokenRow = db.prepare('SELECT symbol, name FROM tokens WHERE mint = ?');
 
-  // Prices for many mints at once, cached for a minute.
-  async function prices(mints) {
+  function rememberToken(contract, { symbol = '', name = '', decimals = null, icon = null }) {
+    upsertToken.run(contract, String(symbol).slice(0, 20), String(name).slice(0, 60), decimals, safeIcon(icon), now());
+  }
+
+  // Name, symbol, decimals and icon, from the database or the token contract.
+  async function tokenMeta(contract) {
+    const row = getToken.get(contract);
+    if (row && row.decimals != null) return row;
+    const m = await near.ftMetadata(contract);
+    rememberToken(contract, { symbol: m.symbol, name: m.name, decimals: m.decimals, icon: m.icon });
+    return getToken.get(contract);
+  }
+
+  async function prices(contracts) {
     const result = new Map();
     const missing = [];
-    for (const mint of new Set(mints)) {
-      const hit = priceCache.get(mint);
+    for (const c of new Set(contracts)) {
+      const hit = priceCache.get(c);
       if (hit && now() - hit.t < PRICE_TTL_MS) {
-        if (hit.snap) result.set(mint, hit.snap);
-      } else {
-        missing.push(mint);
-      }
+        if (hit.snap) result.set(c, hit.snap);
+      } else missing.push(c);
     }
     if (missing.length) {
       const fresh = await quotes(missing);
-      for (const mint of missing) {
-        const snap = fresh.get(mint) || null;
-        priceCache.set(mint, { t: now(), snap });
-        if (snap) {
-          result.set(mint, snap);
-          upsertToken.run(mint, String(snap.symbol || '').slice(0, 20), String(snap.name || '').slice(0, 60), now());
-        }
+      for (const c of missing) {
+        const snap = fresh.get(c) || null;
+        priceCache.set(c, { t: now(), snap });
+        if (snap) result.set(c, snap);
       }
     }
     return result;
   }
 
-  async function solPriceUsd() {
-    const p = await prices([WSOL]);
-    const usd = p.get(WSOL)?.priceUsd;
-    if (!(usd > 0)) throw new Error('SOL price unavailable');
+  async function nearPriceUsd() {
+    const usd = (await prices([WNEAR])).get(WNEAR)?.priceUsd;
+    if (!(usd > 0)) throw new Error('NEAR price unavailable');
     return usd;
   }
 
-  async function holdings(wallet, { fresh = false } = {}) {
-    const hit = holdingsCache.get(wallet);
+  async function holdings(accountId, { fresh = false } = {}) {
+    const hit = holdingsCache.get(accountId);
     if (!fresh && hit && now() - hit.t < HOLDINGS_TTL_MS) return hit.value;
 
-    const [sol, tokens] = await Promise.all([rpc.getSolBalance(wallet), rpc.getTokenBalances(wallet)]);
-    const priced = await prices([WSOL, ...tokens.keys()]);
-    const solUsd = priced.get(WSOL)?.priceUsd || null;
+    const [nearAmount, balances] = await Promise.all([near.nearBalance(accountId), near.ftBalances(accountId)]);
+    const priced = await prices([WNEAR, ...balances.keys()]).catch(() => new Map());
+    const nearUsd = priced.get(WNEAR)?.priceUsd || null;
 
-    const rows = [{
-      mint: WSOL,
-      symbol: 'SOL',
-      name: 'Solana',
-      amount: sol,
-      priceUsd: solUsd,
-      valueUsd: solUsd ? sol * solUsd : null,
-      url: null,
-    }];
-    for (const [mint, amount] of tokens) {
-      const snap = priced.get(mint);
+    const rows = [{ mint: 'near', symbol: 'NEAR', name: 'NEAR', icon: null, amount: nearAmount, priceUsd: nearUsd, valueUsd: nearUsd ? nearAmount * nearUsd : null }];
+    for (const [contract, raw] of balances) {
+      let meta;
+      try {
+        meta = await tokenMeta(contract);
+      } catch {
+        continue; // not a standard token contract
+      }
+      const amount = toUnits(raw, meta.decimals || 0);
+      const p = priced.get(contract);
       rows.push({
-        mint,
-        symbol: snap?.symbol || '',
-        name: snap?.name || '',
+        mint: contract,
+        symbol: meta.symbol || p?.symbol || '',
+        name: meta.name || '',
+        icon: meta.icon || null,
         amount,
-        priceUsd: snap?.priceUsd || null,
-        valueUsd: snap?.priceUsd ? amount * snap.priceUsd : null,
-        url: snap?.url || null,
+        priceUsd: p?.priceUsd || null,
+        valueUsd: p?.priceUsd ? amount * p.priceUsd : null,
       });
     }
     rows.sort((a, b) => (b.valueUsd ?? -1) - (a.valueUsd ?? -1));
     const value = {
-      wallet,
+      account: accountId,
       updatedAt: now(),
       totalUsd: rows.reduce((acc, r) => acc + (r.valueUsd || 0), 0),
       tokens: rows,
       unpriced: rows.filter((r) => r.valueUsd === null).length,
     };
-    holdingsCache.set(wallet, { t: now(), value });
+    holdingsCache.set(accountId, { t: now(), value });
     return value;
   }
 
-  // Profit per token from recorded trades. `held` (mint -> amount) lets the
-  // caller use real on-chain balances; otherwise tracked amounts are used.
-  async function pnl(wallet, held = null) {
-    const byMint = new Map();
-    for (const t of tradesFor.all(wallet)) {
-      if (!byMint.has(t.mint)) {
-        byMint.set(t.mint, { mint: t.mint, qty: 0, cost: 0, realizedUsd: 0, boughtUsd: 0, soldUsd: 0, buys: 0, sells: 0, partial: false, lastTradeAt: 0 });
+  // Profit per token from recorded trades. `held` (contract -> amount) lets
+  // the caller use real balances; otherwise tracked amounts are used.
+  async function pnl(accountId, held = null) {
+    const byToken = new Map();
+    for (const t of tradesFor.all(accountId)) {
+      if (!byToken.has(t.mint)) {
+        byToken.set(t.mint, { mint: t.mint, qty: 0, cost: 0, realizedUsd: 0, boughtUsd: 0, soldUsd: 0, buys: 0, sells: 0, partial: false, lastTradeAt: 0 });
       }
-      const p = byMint.get(t.mint);
+      const p = byToken.get(t.mint);
       const usd = t.value_usd || 0;
       p.lastTradeAt = t.block_time;
       if (t.side === 'buy') {
@@ -116,19 +132,17 @@ function createPortfolio({ db, rpc, quotes, now = () => Date.now() }) {
         p.sells += 1;
         p.soldUsd += usd;
         const sold = Math.min(t.token_amount, p.qty);
-        if (t.token_amount > p.qty * 1.0001) p.partial = true; // sold tokens we never saw bought
+        if (t.token_amount > p.qty * 1.0001) p.partial = true; // sold tokens never seen bought
         if (sold > 0) {
           const avg = p.cost / p.qty;
-          const share = sold / t.token_amount;
-          p.realizedUsd += usd * share - avg * sold;
+          p.realizedUsd += usd * (sold / t.token_amount) - avg * sold;
           p.cost -= avg * sold;
           p.qty -= sold;
         }
       }
     }
 
-    const open = [...byMint.values()].filter((p) => p.qty > 0).map((p) => p.mint);
-    // If prices are down, still report realized profit; open positions count as 0.
+    const open = [...byToken.values()].filter((p) => p.qty > 0).map((p) => p.mint);
     let priced = new Map();
     let pricesUnavailable = false;
     if (open.length) {
@@ -140,18 +154,18 @@ function createPortfolio({ db, rpc, quotes, now = () => Date.now() }) {
     }
 
     const tokens = [];
-    for (const p of byMint.values()) {
+    for (const p of byToken.values()) {
       const snap = priced.get(p.mint);
-      let amount = p.qty;
-      if (held) amount = Math.min(p.qty, held.get(p.mint) || 0);
+      const amount = held ? Math.min(p.qty, held.get(p.mint) || 0) : p.qty;
       const costLeft = p.qty > 0 ? (p.cost * amount) / p.qty : 0;
       const valueNow = snap?.priceUsd ? amount * snap.priceUsd : null;
       const unrealizedUsd = valueNow === null ? 0 : valueNow - costLeft;
-      const symbolRow = tokenRow.get(p.mint);
+      const meta = getToken.get(p.mint);
       tokens.push({
         mint: p.mint,
-        symbol: snap?.symbol || symbolRow?.symbol || '',
-        name: snap?.name || symbolRow?.name || '',
+        symbol: meta?.symbol || snap?.symbol || '',
+        name: meta?.name || '',
+        icon: meta?.icon || null,
         buys: p.buys,
         sells: p.sells,
         boughtUsd: p.boughtUsd,
@@ -161,7 +175,7 @@ function createPortfolio({ db, rpc, quotes, now = () => Date.now() }) {
         realizedUsd: p.realizedUsd,
         unrealizedUsd,
         totalUsd: p.realizedUsd + unrealizedUsd,
-        closed: amount <= 0,
+        closed: amount <= 1e-12,
         partial: p.partial,
         lastTradeAt: p.lastTradeAt,
       });
@@ -173,7 +187,7 @@ function createPortfolio({ db, rpc, quotes, now = () => Date.now() }) {
     const sum = (k) => tokens.reduce((acc, t) => acc + t[k], 0);
     const best = [...tokens].sort((a, b) => b.totalUsd - a.totalUsd)[0] || null;
     return {
-      wallet,
+      account: accountId,
       tokens,
       realizedUsd: sum('realizedUsd'),
       unrealizedUsd: sum('unrealizedUsd'),
@@ -188,7 +202,7 @@ function createPortfolio({ db, rpc, quotes, now = () => Date.now() }) {
     };
   }
 
-  return { prices, solPriceUsd, holdings, pnl };
+  return { prices, nearPriceUsd, holdings, pnl, rememberToken, tokenMeta };
 }
 
-module.exports = { createPortfolio };
+module.exports = { createPortfolio, safeIcon };

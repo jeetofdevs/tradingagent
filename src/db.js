@@ -1,4 +1,4 @@
-// SQLite database for the social layer (Node's built-in node:sqlite).
+// SQLite database (Node's built-in node:sqlite).
 // On Railway it lives on the same volume as the bot state (DATA_DIR).
 
 const fs = require('fs');
@@ -25,13 +25,13 @@ CREATE TABLE IF NOT EXISTS users (
   share_trades INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL,
   last_sync_at INTEGER,
-  newest_signature TEXT,
+  last_event_ts INTEGER NOT NULL DEFAULT 0,
   backfilled INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS nonces (
   nonce TEXT PRIMARY KEY,
-  wallet TEXT NOT NULL,
+  recipient TEXT NOT NULL,
   message TEXT NOT NULL,
   expires_at INTEGER NOT NULL
 );
@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS tips (
   from_wallet TEXT NOT NULL,
   to_wallet TEXT NOT NULL,
   post_id INTEGER REFERENCES posts(id) ON DELETE SET NULL,
-  lamports INTEGER NOT NULL,
+  amount REAL NOT NULL,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS tips_to ON tips(to_wallet);
@@ -96,6 +96,8 @@ CREATE TABLE IF NOT EXISTS tokens (
   mint TEXT PRIMARY KEY,
   symbol TEXT NOT NULL DEFAULT '',
   name TEXT NOT NULL DEFAULT '',
+  decimals INTEGER,
+  icon TEXT,
   updated_at INTEGER NOT NULL
 );
 `;

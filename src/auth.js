@@ -1,6 +1,11 @@
-// Sign in with a Solana wallet: the server hands out a one-time message,
-// the wallet signs it, the server checks the ed25519 signature. No
-// passwords, and no transaction is involved.
+// Sign in with a NEAR wallet using NEP-413 (signMessage).
+//
+// 1. The server issues a message, a random 32-byte nonce and a recipient.
+// 2. The wallet signs them (no transaction, nothing is spent) and returns
+//    { accountId, publicKey, signature }.
+// 3. The server checks the ed25519 signature over the NEP-413 payload, then
+//    asks the NEAR RPC that publicKey is a FULL ACCESS key of accountId.
+//    Without step 3 anyone could claim any account name.
 
 const crypto = require('crypto');
 
@@ -41,72 +46,95 @@ function base58Encode(buf) {
   return out;
 }
 
-// A Solana wallet address is a base58 ed25519 public key (32 bytes).
-function isWallet(text) {
-  if (typeof text !== 'string' || text.length < 32 || text.length > 44) return false;
-  try {
-    return base58Decode(text).length === 32;
-  } catch {
-    return false;
-  }
+// NEAR account IDs: named (alice.near, app.tg) or implicit (64 hex chars).
+const ACCOUNT_RE = /^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/;
+function isAccountId(id) {
+  return typeof id === 'string' && id.length >= 2 && id.length <= 64 && ACCOUNT_RE.test(id);
 }
 
-function verifySignature(wallet, message, signature) {
-  const pub = base58Decode(wallet);
-  // Strings are base64 (what the browser sends); bytes are used as is.
-  const sig = typeof signature === 'string' ? Buffer.from(signature, 'base64') : Buffer.from(signature);
-  if (pub.length !== 32 || sig.length !== 64) return false;
-  const key = crypto.createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x: pub.toString('base64url') }, format: 'jwk' });
-  return crypto.verify(null, Buffer.from(message, 'utf8'), key, sig);
+const NEP413_TAG = 2147483648 + 413;
+
+function borshString(s) {
+  const bytes = Buffer.from(s, 'utf8');
+  const len = Buffer.alloc(4);
+  len.writeUInt32LE(bytes.length);
+  return Buffer.concat([len, bytes]);
 }
 
-const CHALLENGE_TTL_MS = 5 * 60000;
+// sha256 of the NEP-413 payload: tag, then borsh { message, nonce[32], recipient, callbackUrl? }.
+function nep413Hash({ message, nonce, recipient, callbackUrl = null }) {
+  const tag = Buffer.alloc(4);
+  tag.writeUInt32LE(NEP413_TAG);
+  const parts = [tag, borshString(message), Buffer.from(nonce), borshString(recipient)];
+  parts.push(callbackUrl == null ? Buffer.from([0]) : Buffer.concat([Buffer.from([1]), borshString(callbackUrl)]));
+  return crypto.createHash('sha256').update(Buffer.concat(parts)).digest();
+}
 
-function createAuth({ db, appName, secret, now = () => Date.now() }) {
+function decodePublicKey(publicKey) {
+  const [type, data] = String(publicKey).split(':');
+  if (type !== 'ed25519' || !data) throw new Error('Only ed25519 keys are supported');
+  const raw = base58Decode(data);
+  if (raw.length !== 32) throw new Error('Bad public key');
+  return raw;
+}
+
+function decodeSignature(signature) {
+  let sig = Buffer.from(String(signature), 'base64');
+  if (sig.length !== 64) sig = base58Decode(String(signature)); // a few wallets use base58
+  if (sig.length !== 64) throw new Error('Bad signature');
+  return sig;
+}
+
+function verifyNep413({ publicKey, signature, message, nonce, recipient, callbackUrl }) {
+  const key = crypto.createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x: decodePublicKey(publicKey).toString('base64url') }, format: 'jwk' });
+  return crypto.verify(null, nep413Hash({ message, nonce, recipient, callbackUrl }), key, decodeSignature(signature));
+}
+
+const CHALLENGE_TTL_MS = 10 * 60000;
+
+function createAuth({ db, near, appName, secret, now = () => Date.now() }) {
   const sessionSecret = secret || crypto.randomBytes(32).toString('hex');
-  const insertNonce = db.prepare('INSERT INTO nonces (nonce, wallet, message, expires_at) VALUES (?, ?, ?, ?)');
-  const takeNonce = db.prepare('DELETE FROM nonces WHERE nonce = ? RETURNING wallet, message, expires_at');
+  const insertNonce = db.prepare('INSERT INTO nonces (nonce, recipient, message, expires_at) VALUES (?, ?, ?, ?)');
+  const takeNonce = db.prepare('DELETE FROM nonces WHERE nonce = ? RETURNING recipient, message, expires_at');
   const purge = db.prepare('DELETE FROM nonces WHERE expires_at < ?');
 
-  function challenge(wallet, host) {
-    if (!isWallet(wallet)) throw new Error('Not a valid Solana wallet address');
+  function challenge(host) {
     purge.run(now());
-    const nonce = crypto.randomBytes(16).toString('hex');
-    const message = [
-      `${appName} wants you to sign in with your Solana wallet:`,
-      wallet,
-      '',
-      'This only proves you own the wallet. It is not a transaction and costs nothing.',
-      '',
-      `Site: ${host}`,
-      `Nonce: ${nonce}`,
-      `Issued: ${new Date(now()).toISOString()}`,
-    ].join('\n');
-    insertNonce.run(nonce, wallet, message, now() + CHALLENGE_TTL_MS);
-    return { nonce, message };
+    const nonce = crypto.randomBytes(32).toString('base64');
+    const recipient = String(host || appName).slice(0, 100);
+    const message = `Sign in to ${appName}\n\nThis proves you own this NEAR account. It is not a transaction and costs nothing.\n\nIssued: ${new Date(now()).toISOString()}`;
+    insertNonce.run(nonce, recipient, message, now() + CHALLENGE_TTL_MS);
+    return { nonce, message, recipient };
   }
 
-  // Returns the wallet on success, throws on failure. Nonces are single use.
-  function verify(nonce, signature) {
+  // Returns the account ID on success, throws on failure. Nonces are single use.
+  async function verify({ nonce, accountId, publicKey, signature, callbackUrl }) {
     const row = takeNonce.get(String(nonce || ''));
-    if (!row) throw new Error('Sign-in request expired. Try again.');
-    if (row.expires_at < now()) throw new Error('Sign-in request expired. Try again.');
+    if (!row || row.expires_at < now()) throw new Error('Sign-in request expired. Try again.');
+    if (!isAccountId(accountId)) throw new Error('Not a valid NEAR account');
+    const base = { publicKey, signature, message: row.message, nonce: Buffer.from(nonce, 'base64'), recipient: row.recipient };
+    // Browser wallets (MyNearWallet) include the callback URL in what they sign; extensions do not.
     let ok = false;
-    try {
-      ok = verifySignature(row.wallet, row.message, signature);
-    } catch {
-      ok = false;
+    for (const cb of [null, typeof callbackUrl === 'string' ? callbackUrl : null]) {
+      try {
+        if (verifyNep413({ ...base, callbackUrl: cb })) ok = true;
+      } catch {
+        // try the next form
+      }
+      if (ok || cb === null && !callbackUrl) break;
     }
-    if (!ok) throw new Error('Signature does not match this wallet');
-    return row.wallet;
+    if (!ok) throw new Error('Signature check failed');
+    const permission = await near.accessKeyPermission(accountId, publicKey);
+    if (permission !== 'FullAccess') throw new Error('That key is not a full-access key of this account');
+    return accountId;
   }
 
-  // Stateless session token: wallet.expiry.hmac
+  // Stateless session token: base64url(account).expiry.hmac
   const SESSION_MS = 30 * 24 * 60 * 60000;
   const mac = (data) => crypto.createHmac('sha256', sessionSecret).update(data).digest('base64url');
 
-  function issueSession(wallet) {
-    const data = `${wallet}.${now() + SESSION_MS}`;
+  function issueSession(accountId) {
+    const data = `${Buffer.from(accountId).toString('base64url')}.${now() + SESSION_MS}`;
     return `${data}.${mac(data)}`;
   }
 
@@ -114,16 +142,16 @@ function createAuth({ db, appName, secret, now = () => Date.now() }) {
     if (typeof token !== 'string') return null;
     const parts = token.split('.');
     if (parts.length !== 3) return null;
-    const [wallet, expiry, given] = parts;
-    const expected = mac(`${wallet}.${expiry}`);
+    const [acc, expiry, given] = parts;
     const a = Buffer.from(given);
-    const b = Buffer.from(expected);
+    const b = Buffer.from(mac(`${acc}.${expiry}`));
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
     if (Number(expiry) < now()) return null;
-    return wallet;
+    const accountId = Buffer.from(acc, 'base64url').toString();
+    return isAccountId(accountId) ? accountId : null;
   }
 
   return { challenge, verify, issueSession, readSession, sessionMaxAgeMs: SESSION_MS };
 }
 
-module.exports = { createAuth, base58Decode, base58Encode, isWallet, verifySignature };
+module.exports = { createAuth, isAccountId, nep413Hash, verifyNep413, base58Encode, base58Decode };

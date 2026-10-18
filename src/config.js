@@ -20,12 +20,15 @@ function loadConfig() {
     dataDir: str('DATA_DIR', './data'),
     // Signs login cookies. Set it in production, or everyone is logged out on each restart.
     sessionSecret: str('SESSION_SECRET', ''),
-    // The public RPC is rate limited; use a provider URL (Helius, Triton, QuickNode) for real traffic.
-    solanaRpcUrl: str('SOLANA_RPC_URL', 'https://api.mainnet-beta.solana.com'),
-    minTipSol: num('MIN_TIP_SOL', 0.001),
+    // NEAR data sources (free public endpoints by default).
+    nearRpcUrl: str('NEAR_RPC_URL', 'https://rpc.mainnet.fastnear.com'),
+    fastnearUrl: str('FASTNEAR_API_URL', 'https://api.fastnear.com'),
+    nearblocksUrl: str('NEARBLOCKS_API_URL', 'https://api.nearblocks.io'),
+    nearblocksKey: str('NEARBLOCKS_API_KEY', ''), // optional, raises the rate limit
+    minTipNear: num('MIN_TIP_NEAR', 0.01),
     syncIntervalSec: num('SYNC_INTERVAL_SEC', 300),
-    syncBackfillTx: num('SYNC_BACKFILL_TX', 40), // transactions read when a wallet joins
-    syncWalletsPerRound: num('SYNC_WALLETS_PER_ROUND', 10),
+    syncBackfillEvents: num('SYNC_BACKFILL_EVENTS', 100), // token events read when an account joins
+    syncAccountsPerRound: num('SYNC_ACCOUNTS_PER_ROUND', 10),
   };
 }
 
