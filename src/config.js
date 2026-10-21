@@ -27,7 +27,7 @@ function loadConfig() {
     nearblocksKey: str('NEARBLOCKS_API_KEY', ''), // optional, raises the rate limit
     minTipNear: num('MIN_TIP_NEAR', 0.01),
     // The project's own token contract and X account, shown on the site.
-    tokenCa: str('TOKEN_CA', ''), // empty: the site shows "Contract address coming soon"
+    tokenCa: str('TOKEN_CA', ''), // empty: the site shows no CA
     xHandle: str('X_HANDLE', 'nearsocialfun').replace(/^@/, ''),
     // Where the project token is traded. Tokens launched on nearly.trade
     // (contracts ending in .nearlytrade.near) always trade there.

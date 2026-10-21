@@ -782,10 +782,11 @@
   const xLink = (cls = 'btn sm') => (xUrl() ? `<a class="${cls}" href="${esc(xUrl())}" target="_blank" rel="noopener noreferrer">${icon('xlogo', 'sm')} @${esc(state.config.xHandle)}</a>` : '');
   function projectCard(compact = false) {
     const ca = state.config.tokenCa;
+    // No CA set: show only the X account, no CA box.
+    if (!ca) return xUrl() ? `<section class="card ca-card${compact ? ' compact' : ''}"><div class="ca-actions" style="margin-top:0">${xLink()}</div></section>` : '';
     return `<section class="card ca-card${compact ? ' compact' : ''}">
-      ${ca ? `<div class="ca-head"><span class="ca-label">Official CA</span><span class="muted">NEAR token contract</span></div>
-      <div class="ca-row"><code class="ca-value">${esc(ca)}</code><button class="btn sm primary" data-action="copy" data-text="${esc(ca)}" data-what="Contract address copied">${icon('copy', 'sm')} Copy</button></div>`
-      : `<div class="ca-head"><span class="ca-label">Official CA</span></div><div class="ca-row"><span class="ca-value pending">Contract address coming soon</span></div>`}
+      <div class="ca-head"><span class="ca-label">Official CA</span><span class="muted">NEAR token contract</span></div>
+      <div class="ca-row"><code class="ca-value">${esc(ca)}</code><button class="btn sm primary" data-action="copy" data-text="${esc(ca)}" data-what="Contract address copied">${icon('copy', 'sm')} Copy</button></div>
       <div class="ca-actions">${ca && state.config.tokenTradeUrl ? `<a class="btn sm primary" href="${esc(state.config.tokenTradeUrl)}" target="_blank" rel="noopener noreferrer">${icon('bolt', 'sm')} Buy on nearly.trade</a>` : ''}${ca ? `<a class="btn sm" href="${tokenLink(ca)}">${icon('chart', 'sm')} Token page</a>` : ''}${xLink()}</div>
       ${ca ? '<p class="ca-warn">Only trust this CA. Copy it, never retype it. Look-alike tokens are scams.</p>' : ''}
     </section>`;

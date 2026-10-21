@@ -534,4 +534,3 @@ label.btn { cursor: pointer; }
 .ca-card.compact { padding: 14px; }
 .ca-card.compact .ca-value { font-size: 13px; padding: 8px 10px; }
 .ca-card.compact .ca-head .muted { display: none; }
-.ca-value.pending { font-family: var(--display); font-weight: 700; color: var(--text-2); }
